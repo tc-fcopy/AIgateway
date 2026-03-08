@@ -1,0 +1,40 @@
+definitions:
+  dto.AdminLoginOutput:
+    properties:
+      token:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /admin_login/login:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 管理员通过用户名和密码登录系统，成功后返回访问令牌
+      parameters:
+      - description: 管理员用户名
+        in: formData
+        maxLength: 20
+        minLength: 3
+        name: username
+        required: true
+        type: string
+      - description: 管理员密码
+        in: formData
+        maxLength: 20
+        minLength: 6
+        name: password
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 登录成功
+          schema:
+            $ref: '#/definitions/dto.AdminLoginOutput'
+      summary: 管理员登录接口
+      tags:
+      - 管理员接口
+swagger: "2.0"

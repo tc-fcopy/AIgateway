@@ -1,0 +1,61 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "contact": {}
+    },
+    "paths": {
+        "/admin_login/login": {
+            "post": {
+                "description": "管理员通过用户名和密码登录系统，成功后返回访问令牌",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员接口"
+                ],
+                "summary": "管理员登录接口",
+                "parameters": [
+                    {
+                        "maxLength": 20,
+                        "minLength": 3,
+                        "type": "string",
+                        "description": "管理员用户名",
+                        "name": "username",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "maxLength": 20,
+                        "minLength": 6,
+                        "type": "string",
+                        "description": "管理员密码",
+                        "name": "password",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "登录成功",
+                        "schema": {
+                            "$ref": "#/definitions/dto.AdminLoginOutput"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "dto.AdminLoginOutput": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,23 @@
+*.log
+.idea
+gin_scaffold
+
+# local tool/runtime
+.claude/
+logs/
+go
+
+# local secrets/config
+conf/dev/*.toml
+!conf/dev/*.example.toml
+
+# private notes and internal evolution docs
+AI网关工作计划*.md
+AI网关问题清单.md
+AI网关.md.txt
+claude.md.txt
+插件化执行链重构总体规划.md
+方案C重构执行计划.md
+请求数据流向.md
+docs/plugin_refactor_baseline.md
+scripts/plugin_refactor_baseline_check.ps1

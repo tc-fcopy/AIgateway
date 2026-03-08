@@ -1,0 +1,837 @@
+package controller
+
+import (
+	"errors"
+	"fmt"
+	"gateway/dao"
+	"gateway/dto"
+	"gateway/golang_common/lib"
+	"gateway/middleware"
+	"gateway/public"
+	"github.com/gin-gonic/gin"
+	"strings"
+)
+
+type ServiceController struct {
+}
+
+func ServiceRegister(group *gin.RouterGroup) {
+	serviceController := &ServiceController{}
+	group.GET("/service_list", serviceController.ServiceList)
+	group.GET("/service_delete", serviceController.ServiceDelete)
+	group.GET("/service_detail", serviceController.ServiceDetail)
+	// group.GET("/service_stat", serviceController.ServiceStat)
+	// group.POST("/change_pwd", adminController.AdminChangePwd)
+
+	group.POST("/service_add_http", serviceController.ServiceAddHTTP)
+	group.POST("/service_update_http", serviceController.ServiceUpdateHTTP)
+	group.POST("/service_add_tcp", serviceController.ServiceAddTcp)
+	group.POST("/service_update_tcp", serviceController.ServiceUpdateTcp)
+	group.POST("/service_add_grpc", serviceController.ServiceAddGrpc)
+	group.POST("/service_update_grpc", serviceController.ServiceUpdateGrpc)
+
+}
+
+func (service *ServiceController) ServiceList(c *gin.Context) {
+	params := &dto.ServiceListInput{}
+	if err := params.BindValidParam(c); err != nil {
+		middleware.ResponseError(c, 2000, err)
+		return
+	}
+
+	tx, err := lib.GetGormPool("default")
+	if err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	//浠巇b涓垎椤佃鍙栧熀鏈俊
+	serviceInfo := &dao.ServiceInfo{}
+	list, total, err := serviceInfo.PageList(c, tx, params)
+	if err != nil {
+		middleware.ResponseError(c, 2002, err)
+		return
+	}
+
+	//鏍煎紡鍖栬緭鍑轰俊
+	outList := []dto.ServiceListItemOutput{}
+	for _, listItem := range list {
+		serviceDetail, err := listItem.ServiceDetail(c, tx, &listItem)
+		if err != nil {
+			middleware.ResponseError(c, 2003, err)
+			return
+		}
+		//1銆乭ttp鍚庣紑鎺ュ叆 clusterIP+clusterPort+path
+		//2銆乭ttp鍩熷悕鎺ュ叆 domain
+		//3銆乼cp銆乬rpc鎺ュ叆 clusterIP+servicePort
+		serviceAddr := "unknow"
+		clusterIP := lib.GetStringConf("base.cluster.cluster_ip")
+		clusterPort := lib.GetStringConf("base.cluster.cluster_port")
+		clusterSSLPort := lib.GetStringConf("base.cluster.cluster_ssl_port")
+		if serviceDetail.Info.LoadType == public.LoadTypeHTTP &&
+			serviceDetail.HTTPRule.RuleType == public.HTTPRuleTypePrefixURL &&
+			serviceDetail.HTTPRule.NeedHttps == 1 {
+			serviceAddr = fmt.Sprintf("%s:%s%s", clusterIP, clusterSSLPort, serviceDetail.HTTPRule.Rule)
+		}
+		if serviceDetail.Info.LoadType == public.LoadTypeHTTP &&
+			serviceDetail.HTTPRule.RuleType == public.HTTPRuleTypePrefixURL &&
+			serviceDetail.HTTPRule.NeedHttps == 0 {
+			serviceAddr = fmt.Sprintf("%s:%s%s", clusterIP, clusterPort, serviceDetail.HTTPRule.Rule)
+		}
+		if serviceDetail.Info.LoadType == public.LoadTypeHTTP &&
+			serviceDetail.HTTPRule.RuleType == public.HTTPRuleTypeDomain {
+			serviceAddr = serviceDetail.HTTPRule.Rule
+		}
+		if serviceDetail.Info.LoadType == public.LoadTypeTCP {
+			serviceAddr = fmt.Sprintf("%s:%d", clusterIP, serviceDetail.TCPRule.Port)
+		}
+		if serviceDetail.Info.LoadType == public.LoadTypeGRPC {
+			serviceAddr = fmt.Sprintf("%s:%d", clusterIP, serviceDetail.GRPCRule.Port)
+		}
+		ipList := serviceDetail.LoadBalance.GetIPListByModel()
+		counter, err := public.FlowCounterHandler.GetCounter(public.FlowServicePrefix + listItem.ServiceName)
+		if err != nil {
+			middleware.ResponseError(c, 2004, err)
+			return
+		}
+		outItem := dto.ServiceListItemOutput{
+			ID:          listItem.ID,
+			LoadType:    listItem.LoadType,
+			ServiceName: listItem.ServiceName,
+			ServiceDesc: listItem.ServiceDesc,
+			ServiceAddr: serviceAddr,
+			Qps:         counter.QPS,
+			Qpd:         counter.TotalCount,
+			TotalNode:   len(ipList),
+		}
+		outList = append(outList, outItem)
+	}
+	out := &dto.ServiceListOutput{
+		Total: total,
+		List:  outList,
+	}
+	middleware.ResponseSuccess(c, out)
+}
+
+func (service *ServiceController) ServiceDetail(c *gin.Context) {
+	params := &dto.ServiceDeleteInput{}
+	if err := params.BindValidParam(c); err != nil {
+		middleware.ResponseError(c, 2000, err)
+		return
+	}
+
+	tx, err := lib.GetGormPool("default")
+	if err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	//璇诲彇鍩烘湰淇℃伅
+	serviceInfo := &dao.ServiceInfo{ID: params.ID}
+	serviceInfo, err = serviceInfo.Find(c, tx, serviceInfo)
+	if err != nil {
+		middleware.ResponseError(c, 2002, err)
+		return
+	}
+	serviceDetail, err := serviceInfo.ServiceDetail(c, tx, serviceInfo)
+	if err != nil {
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+	middleware.ResponseSuccess(c, serviceDetail)
+}
+
+func (service *ServiceController) ServiceDelete(c *gin.Context) {
+	params := &dto.ServiceDeleteInput{}
+	if err := params.BindValidParam(c); err != nil {
+		middleware.ResponseError(c, 2000, err)
+		return
+	}
+
+	tx, err := lib.GetGormPool("default")
+	if err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	//璇诲彇鍩烘湰淇℃伅
+	serviceInfo := &dao.ServiceInfo{ID: params.ID}
+	serviceInfo, err = serviceInfo.Find(c, tx, serviceInfo)
+	if err != nil {
+		middleware.ResponseError(c, 2002, err)
+		return
+	}
+	serviceInfo.IsDelete = 1
+	if err := serviceInfo.Save(c, tx); err != nil {
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+	if err := syncServiceRuntime(c, serviceInfo.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+}
+
+func (service *ServiceController) ServiceAddHTTP(c *gin.Context) {
+	params := &dto.ServiceAddHTTPInput{}
+	if err := params.BindValidParam(c); err != nil {
+		middleware.ResponseError(c, 2000, err)
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2004, errors.New("ip and weight list length mismatch"))
+		return
+	}
+
+	tx, err := lib.GetGormPool("default")
+	if err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+	tx = tx.Begin()
+	serviceInfo := &dao.ServiceInfo{ServiceName: params.ServiceName}
+	info, err := serviceInfo.Find(c, tx, serviceInfo)
+	if err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2002, err) // 鏁版嵁搴撶湡鐨勫嚭閿欎簡锛堟瘮濡傝〃涓嶅瓨鍦級
+		return
+	}
+	// 鍏抽敭鍒ゆ柇锛氬彧鏈?ID > 0锛屾墠璇存槑鏄粠鏁版嵁搴撴煡鍒扮殑鐪熷疄鏁版嵁
+	if info != nil && info.ID > 0 {
+		tx.Rollback()
+		middleware.ResponseError(c, 2002, fmt.Errorf("service name [%s] already exists", params.ServiceName))
+		return
+	}
+
+	httpUrl := &dao.HttpRule{RuleType: params.RuleType, Rule: params.Rule}
+	httpRuleInfo, err := httpUrl.Find(c, tx, httpUrl)
+	if err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+	if httpRuleInfo != nil && httpRuleInfo.ID > 0 {
+		tx.Rollback()
+		middleware.ResponseError(c, 2003, errors.New("鏈嶅姟鎺ュ叆鍓嶇紑鎴栧煙鍚嶅凡瀛樺湪"))
+		return
+	}
+
+	serviceModel := &dao.ServiceInfo{
+		ServiceName: params.ServiceName,
+		ServiceDesc: params.ServiceDesc,
+	}
+	if err := serviceModel.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2005, err)
+		return
+	}
+	//serviceModel.ID
+	httpRule := &dao.HttpRule{
+		ServiceID:      serviceModel.ID,
+		RuleType:       params.RuleType,
+		Rule:           params.Rule,
+		NeedHttps:      params.NeedHttps,
+		NeedStripUri:   params.NeedStripUri,
+		NeedWebsocket:  params.NeedWebsocket,
+		UrlRewrite:     params.UrlRewrite,
+		HeaderTransfor: params.HeaderTransfor,
+	}
+	if err := httpRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+
+	accessControl := &dao.AccessControl{
+		ServiceID:         serviceModel.ID,
+		OpenAuth:          params.OpenAuth,
+		BlackList:         params.BlackList,
+		WhiteList:         params.WhiteList,
+		ClientIPFlowLimit: params.ClientipFlowLimit,
+		ServiceFlowLimit:  params.ServiceFlowLimit,
+	}
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2007, err)
+		return
+	}
+
+	loadbalance := &dao.LoadBalance{
+		ServiceID:              serviceModel.ID,
+		RoundType:              params.RoundType,
+		IpList:                 params.IpList,
+		WeightList:             params.WeightList,
+		UpstreamConnectTimeout: params.UpstreamConnectTimeout,
+		UpstreamHeaderTimeout:  params.UpstreamHeaderTimeout,
+		UpstreamIdleTimeout:    params.UpstreamIdleTimeout,
+		UpstreamMaxIdle:        params.UpstreamMaxIdle,
+	}
+	if err := loadbalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2008, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, serviceModel.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+}
+
+func (service *ServiceController) ServiceUpdateHTTP(c *gin.Context) {
+	params := &dto.ServiceUpdateHTTPInput{}
+	if err := params.BindValidParam(c); err != nil {
+		middleware.ResponseError(c, 2000, err)
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2001, errors.New("ip and weight list length mismatch"))
+		return
+	}
+
+	tx, err := lib.GetGormPool("default")
+	if err != nil {
+		middleware.ResponseError(c, 2002, err)
+		return
+	}
+	tx = tx.Begin()
+	serviceInfo := &dao.ServiceInfo{ServiceName: params.ServiceName}
+	// 1. 鎵ц鏌ヨ
+	serviceInfo, err = serviceInfo.Find(c, tx, serviceInfo)
+	// 2. 鍏堝垽鏂暟鎹簱鏌ヨ鏄惁鍑洪敊锛堟瘮濡傝〃涓嶅瓨鍦ㄣ€佽繛鎺ュけ璐ワ級
+	if err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+	if serviceInfo == nil || serviceInfo.ID <= 0 {
+		tx.Rollback()
+		middleware.ResponseError(c, 2003, errors.New("service not found"))
+		return
+	}
+
+	serviceDetail, err := serviceInfo.ServiceDetail(c, tx, serviceInfo)
+	if err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2004, err)
+		return
+	}
+	if serviceDetail.HTTPRule == nil || serviceDetail.HTTPRule.ID <= 0 {
+		tx.Rollback()
+		middleware.ResponseError(c, 2004, errors.New("http rule not found"))
+		return
+	}
+	if serviceDetail.LoadBalance == nil || serviceDetail.LoadBalance.ID <= 0 {
+		tx.Rollback()
+		middleware.ResponseError(c, 2004, errors.New("load balance rule not found"))
+		return
+	}
+
+	// 鍚庣画鏇存柊閫昏緫涓嶅彉...
+	info := serviceDetail.Info
+	info.ServiceDesc = params.ServiceDesc
+	if err := info.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2005, err)
+		return
+	}
+
+	httpRule := serviceDetail.HTTPRule
+	httpRule.NeedHttps = params.NeedHttps
+	httpRule.NeedStripUri = params.NeedStripUri
+	httpRule.NeedWebsocket = params.NeedWebsocket
+	httpRule.UrlRewrite = params.UrlRewrite
+	httpRule.HeaderTransfor = params.HeaderTransfor
+	if err := httpRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+
+	accessControl := serviceDetail.AccessControl
+	accessControl.OpenAuth = params.OpenAuth
+	accessControl.BlackList = params.BlackList
+	accessControl.WhiteList = params.WhiteList
+	accessControl.ClientIPFlowLimit = params.ClientipFlowLimit
+	accessControl.ServiceFlowLimit = params.ServiceFlowLimit
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2007, err)
+		return
+	}
+
+	loadbalance := serviceDetail.LoadBalance
+	loadbalance.RoundType = params.RoundType
+	loadbalance.IpList = params.IpList
+	loadbalance.WeightList = params.WeightList
+	loadbalance.UpstreamConnectTimeout = params.UpstreamConnectTimeout
+	loadbalance.UpstreamHeaderTimeout = params.UpstreamHeaderTimeout
+	loadbalance.UpstreamIdleTimeout = params.UpstreamIdleTimeout
+	loadbalance.UpstreamMaxIdle = params.UpstreamMaxIdle
+	if err := loadbalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2008, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, info.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+}
+
+//func (service *ServiceController) ServiceStat(c *gin.Context) {
+//	params := &dto.ServiceDeleteInput{}
+//	if err := params.BindValidParam(c); err != nil {
+//		middleware.ResponseError(c, 2000, err)
+//		return
+//	}
+//
+//	//璇诲彇鍩烘湰淇℃伅
+//	tx, err := lib.GetGormPool("default")
+//	if err != nil {
+//		middleware.ResponseError(c, 2001, err)
+//		return
+//	}
+//	serviceInfo := &dao.ServiceInfo{ID: params.ID}
+//	serviceDetail, err := serviceInfo.ServiceDetail(c, tx, serviceInfo)
+//	if err != nil {
+//		middleware.ResponseError(c, 2003, err)
+//		return
+//	}
+//
+//	counter, err := public.FlowCounterHandler.GetCounter(public.FlowServicePrefix + serviceDetail.Info.ServiceName)
+//	if err != nil {
+//		middleware.ResponseError(c, 2004, err)
+//		return
+//	}
+//	todayList := []int64{}
+//	currentTime := time.Now()
+//	for i := 0; i <= currentTime.Hour(); i++ {
+//		dateTime := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), i, 0, 0, 0, lib.TimeLocation)
+//		hourData, _ := counter.GetHourData(dateTime)
+//		todayList = append(todayList, hourData)
+//	}
+//
+//	yesterdayList := []int64{}
+//	yesterTime := currentTime.Add(-1 * time.Duration(time.Hour*24))
+//	for i := 0; i <= 23; i++ {
+//		dateTime := time.Date(yesterTime.Year(), yesterTime.Month(), yesterTime.Day(), i, 0, 0, 0, lib.TimeLocation)
+//		hourData, _ := counter.GetHourData(dateTime)
+//		yesterdayList = append(yesterdayList, hourData)
+//	}
+//	middleware.ResponseSuccess(c, &dto.ServiceStatOutput{
+//		Today:     todayList,
+//		Yesterday: yesterdayList,
+//	})
+//}
+
+func (admin *ServiceController) ServiceAddTcp(c *gin.Context) {
+	params := &dto.ServiceAddTcpInput{}
+	if err := params.GetValidParams(c); err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	infoSearch := &dao.ServiceInfo{
+		ServiceName: params.ServiceName,
+		IsDelete:    0,
+	}
+	if _, err := infoSearch.Find(c, lib.GORMDefaultPool, infoSearch); err == nil {
+		middleware.ResponseError(c, 2002, errors.New("鏈嶅姟鍚嶈鍗犵敤锛岃閲嶆柊杈撳叆"))
+		return
+	}
+
+	//楠岃瘉绔彛鏄惁琚崰鐢?
+	tcpRuleSearch := &dao.TcpRule{
+		Port: params.Port,
+	}
+	if _, err := tcpRuleSearch.Find(c, lib.GORMDefaultPool, tcpRuleSearch); err == nil {
+		middleware.ResponseError(c, 2003, errors.New("service port already in use"))
+		return
+	}
+	grpcRuleSearch := &dao.GrpcRule{
+		Port: params.Port,
+	}
+	if _, err := grpcRuleSearch.Find(c, lib.GORMDefaultPool, grpcRuleSearch); err == nil {
+		middleware.ResponseError(c, 2004, errors.New("service port already in use"))
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2005, errors.New("ip鍒楄〃涓庢潈閲嶈缃笉鍖归厤"))
+		return
+	}
+
+	tx := lib.GORMDefaultPool.Begin()
+	info := &dao.ServiceInfo{
+		LoadType:    public.LoadTypeTCP,
+		ServiceName: params.ServiceName,
+		ServiceDesc: params.ServiceDesc,
+	}
+	if err := info.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+	loadBalance := &dao.LoadBalance{
+		ServiceID:  info.ID,
+		RoundType:  params.RoundType,
+		IpList:     params.IpList,
+		WeightList: params.WeightList,
+		ForbidList: params.ForbidList,
+	}
+	if err := loadBalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2007, err)
+		return
+	}
+
+	httpRule := &dao.TcpRule{
+		ServiceID: info.ID,
+		Port:      params.Port,
+	}
+	if err := httpRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2008, err)
+		return
+	}
+
+	accessControl := &dao.AccessControl{
+		ServiceID:         info.ID,
+		OpenAuth:          params.OpenAuth,
+		BlackList:         params.BlackList,
+		WhiteList:         params.WhiteList,
+		WhiteHostName:     params.WhiteHostName,
+		ClientIPFlowLimit: params.ClientIPFlowLimit,
+		ServiceFlowLimit:  params.ServiceFlowLimit,
+	}
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2009, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, info.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+	return
+}
+
+// ServiceUpdateTcp godoc
+// @Summary tcp鏈嶅姟鏇存柊
+// @Description tcp鏈嶅姟鏇存柊
+// @Tags 鏈嶅姟绠＄悊
+// @ID /service/service_update_tcp
+// @Accept  json
+// @Produce  json
+// @Param body body dto.ServiceUpdateTcpInput true "body"
+// @Success 200 {object} middleware.Response{data=string} "success"
+// @Router /service/service_update_tcp [post]
+func (admin *ServiceController) ServiceUpdateTcp(c *gin.Context) {
+	params := &dto.ServiceUpdateTcpInput{}
+	if err := params.GetValidParams(c); err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2002, errors.New("ip鍒楄〃涓庢潈閲嶈缃笉鍖归厤"))
+		return
+	}
+
+	tx := lib.GORMDefaultPool.Begin()
+
+	service := &dao.ServiceInfo{
+		ID: params.ID,
+	}
+	detail, err := service.ServiceDetail(c, lib.GORMDefaultPool, service)
+	if err != nil {
+		middleware.ResponseError(c, 2002, err)
+		return
+	}
+
+	info := detail.Info
+	info.ServiceDesc = params.ServiceDesc
+	if err := info.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+
+	loadBalance := &dao.LoadBalance{}
+	if detail.LoadBalance != nil {
+		loadBalance = detail.LoadBalance
+	}
+	loadBalance.ServiceID = info.ID
+	loadBalance.RoundType = params.RoundType
+	loadBalance.IpList = params.IpList
+	loadBalance.WeightList = params.WeightList
+	loadBalance.ForbidList = params.ForbidList
+	if err := loadBalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2004, err)
+		return
+	}
+
+	tcpRule := &dao.TcpRule{}
+	if detail.TCPRule != nil {
+		tcpRule = detail.TCPRule
+	}
+	tcpRule.ServiceID = info.ID
+	tcpRule.Port = params.Port
+	if err := tcpRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2005, err)
+		return
+	}
+
+	accessControl := &dao.AccessControl{}
+	if detail.AccessControl != nil {
+		accessControl = detail.AccessControl
+	}
+	accessControl.ServiceID = info.ID
+	accessControl.OpenAuth = params.OpenAuth
+	accessControl.BlackList = params.BlackList
+	accessControl.WhiteList = params.WhiteList
+	accessControl.WhiteHostName = params.WhiteHostName
+	accessControl.ClientIPFlowLimit = params.ClientIPFlowLimit
+	accessControl.ServiceFlowLimit = params.ServiceFlowLimit
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, info.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+	return
+}
+
+// ServiceAddHttp godoc
+// @Summary grpc鏈嶅姟娣诲姞
+// @Description grpc鏈嶅姟娣诲姞
+// @Tags 鏈嶅姟绠＄悊
+// @ID /service/service_add_grpc
+// @Accept  json
+// @Produce  json
+// @Param body body dto.ServiceAddGrpcInput true "body"
+// @Success 200 {object} middleware.Response{data=string} "success"
+// @Router /service/service_add_grpc [post]
+func (admin *ServiceController) ServiceAddGrpc(c *gin.Context) {
+	params := &dto.ServiceAddGrpcInput{}
+	if err := params.GetValidParams(c); err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	infoSearch := &dao.ServiceInfo{
+		ServiceName: params.ServiceName,
+		IsDelete:    0,
+	}
+	if _, err := infoSearch.Find(c, lib.GORMDefaultPool, infoSearch); err == nil {
+		middleware.ResponseError(c, 2002, errors.New("鏈嶅姟鍚嶈鍗犵敤锛岃閲嶆柊杈撳叆"))
+		return
+	}
+
+	//楠岃瘉绔彛鏄惁琚崰鐢?
+	tcpRuleSearch := &dao.TcpRule{
+		Port: params.Port,
+	}
+	if _, err := tcpRuleSearch.Find(c, lib.GORMDefaultPool, tcpRuleSearch); err == nil {
+		middleware.ResponseError(c, 2003, errors.New("service port already in use"))
+		return
+	}
+	grpcRuleSearch := &dao.GrpcRule{
+		Port: params.Port,
+	}
+	if _, err := grpcRuleSearch.Find(c, lib.GORMDefaultPool, grpcRuleSearch); err == nil {
+		middleware.ResponseError(c, 2004, errors.New("service port already in use"))
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2005, errors.New("ip鍒楄〃涓庢潈閲嶈缃笉鍖归厤"))
+		return
+	}
+
+	tx := lib.GORMDefaultPool.Begin()
+	info := &dao.ServiceInfo{
+		LoadType:    public.LoadTypeGRPC,
+		ServiceName: params.ServiceName,
+		ServiceDesc: params.ServiceDesc,
+	}
+	if err := info.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+
+	loadBalance := &dao.LoadBalance{
+		ServiceID:  info.ID,
+		RoundType:  params.RoundType,
+		IpList:     params.IpList,
+		WeightList: params.WeightList,
+		ForbidList: params.ForbidList,
+	}
+	if err := loadBalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2007, err)
+		return
+	}
+
+	grpcRule := &dao.GrpcRule{
+		ServiceID:      info.ID,
+		Port:           params.Port,
+		HeaderTransfor: params.HeaderTransfor,
+	}
+	if err := grpcRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2008, err)
+		return
+	}
+
+	accessControl := &dao.AccessControl{
+		ServiceID:         info.ID,
+		OpenAuth:          params.OpenAuth,
+		BlackList:         params.BlackList,
+		WhiteList:         params.WhiteList,
+		WhiteHostName:     params.WhiteHostName,
+		ClientIPFlowLimit: params.ClientIPFlowLimit,
+		ServiceFlowLimit:  params.ServiceFlowLimit,
+	}
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2009, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, info.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+	return
+}
+
+// ServiceUpdateTcp godoc
+// @Summary grpc鏈嶅姟鏇存柊
+// @Description grpc鏈嶅姟鏇存柊
+// @Tags 鏈嶅姟绠＄悊
+// @ID /service/service_update_grpc
+// @Accept  json
+// @Produce  json
+// @Param body body dto.ServiceUpdateGrpcInput true "body"
+// @Success 200 {object} middleware.Response{data=string} "success"
+// @Router /service/service_update_grpc [post]
+func (admin *ServiceController) ServiceUpdateGrpc(c *gin.Context) {
+	params := &dto.ServiceUpdateGrpcInput{}
+	if err := params.GetValidParams(c); err != nil {
+		middleware.ResponseError(c, 2001, err)
+		return
+	}
+
+	if len(strings.Split(params.IpList, ",")) != len(strings.Split(params.WeightList, ",")) {
+		middleware.ResponseError(c, 2002, errors.New("ip鍒楄〃涓庢潈閲嶈缃笉鍖归厤"))
+		return
+	}
+
+	tx := lib.GORMDefaultPool.Begin()
+
+	service := &dao.ServiceInfo{
+		ID: params.ID,
+	}
+	detail, err := service.ServiceDetail(c, lib.GORMDefaultPool, service)
+	if err != nil {
+		middleware.ResponseError(c, 2003, err)
+		return
+	}
+
+	info := detail.Info
+	info.ServiceDesc = params.ServiceDesc
+	if err := info.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2004, err)
+		return
+	}
+
+	loadBalance := &dao.LoadBalance{}
+	if detail.LoadBalance != nil {
+		loadBalance = detail.LoadBalance
+	}
+	loadBalance.ServiceID = info.ID
+	loadBalance.RoundType = params.RoundType
+	loadBalance.IpList = params.IpList
+	loadBalance.WeightList = params.WeightList
+	loadBalance.ForbidList = params.ForbidList
+	if err := loadBalance.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2005, err)
+		return
+	}
+
+	grpcRule := &dao.GrpcRule{}
+	if detail.GRPCRule != nil {
+		grpcRule = detail.GRPCRule
+	}
+	grpcRule.ServiceID = info.ID
+	//grpcRule.Port = params.Port
+	grpcRule.HeaderTransfor = params.HeaderTransfor
+	if err := grpcRule.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2006, err)
+		return
+	}
+
+	accessControl := &dao.AccessControl{}
+	if detail.AccessControl != nil {
+		accessControl = detail.AccessControl
+	}
+	accessControl.ServiceID = info.ID
+	accessControl.OpenAuth = params.OpenAuth
+	accessControl.BlackList = params.BlackList
+	accessControl.WhiteList = params.WhiteList
+	accessControl.WhiteHostName = params.WhiteHostName
+	accessControl.ClientIPFlowLimit = params.ClientIPFlowLimit
+	accessControl.ServiceFlowLimit = params.ServiceFlowLimit
+	if err := accessControl.Save(c, tx); err != nil {
+		tx.Rollback()
+		middleware.ResponseError(c, 2007, err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		middleware.ResponseError(c, 2010, err)
+		return
+	}
+	if err := syncServiceRuntime(c, info.ID); err != nil {
+		middleware.ResponseError(c, 2011, err)
+		return
+	}
+	middleware.ResponseSuccess(c, "")
+	return
+}

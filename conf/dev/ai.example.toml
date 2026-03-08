@@ -1,0 +1,162 @@
+﻿[ai]
+# AI缃戝叧鎬诲紑鍏?enable = true
+# 是否默认应用 AI 插件到全部服务（false 时仅对配置了 ai_service_config 的服务生效）
+apply_to_all_services = true
+
+
+# 榛樿AI鏈嶅姟閰嶇疆
+[ai.default_service]
+# 鏄惁寮€鍚疜ey Auth璁よ瘉
+enable_key_auth = true
+# 鏄惁寮€鍚疛WT Auth璁よ瘉
+enable_jwt_auth = false
+# 鏄惁寮€鍚疶oken闄愭祦
+enable_token_ratelimit = true
+# 鏄惁寮€鍚厤棰濈鐞?enable_quota = true
+# 鏄惁寮€鍚ā鍨嬭矾鐢?enable_model_router = true
+# 鏄惁寮€鍚ā鍨嬫槧灏?enable_model_mapper = true
+# 鏄惁寮€鍚疉I缂撳瓨
+enable_cache = true
+# 鏄惁寮€鍚疉I璐熻浇鍧囪　
+enable_loadbalancer = true
+# 鏄惁寮€鍚彲瑙傛祴鎬?enable_observability = true
+# 鏄惁寮€鍚疨rompt瑁呴グ
+enable_prompt_decorator = true
+# 鏄惁寮€鍚疘P闄愬埗
+enable_ip_restriction = true
+# 鏄惁寮€鍚疌ORS
+enable_cors = true
+
+# Key Auth閰嶇疆
+[ai.key_auth]
+# API Key鎻愬彇瀛楁鍚嶏紙鏀寔澶氫釜锛?key_names = ["x-api-key", "api-key", "Authorization"]
+# 鍏佽鐨凜onsumer鐧藉悕鍗曪紙绌鸿〃绀哄厑璁告墍鏈夛級
+allow_consumers = []
+
+# JWT Auth閰嶇疆
+[ai.jwt_auth]
+# JWT瀵嗛挜锛堢敓浜х幆澧冨簲浣跨敤鐜鍙橀噺锛?secret = "<your-jwt-secret>"
+# 鏀寔鐨勫姞瀵嗙畻娉?algorithms = ["RS256", "HS256"]
+
+# Token闄愭祦閰嶇疆
+[ai.token_ratelimit]
+# 闄愭祦鏃堕棿绐楀彛锛堢锛?window_seconds = 60
+# 姣忎釜绐楀彛鏈€澶oken鏁?limit_tokens = 10000
+# 鎸夋椂闂寸淮搴﹂檺娴?windows = ["minute", "hour", "day"]
+
+# 閰嶉閰嶇疆
+[ai.quota]
+# 閰嶉榛樿鍊硷紙tokens锛?default_quota = 100000
+# 閰嶉杩囨湡鏃堕棿锛堢锛?quota_ttl = 86400
+
+# 妯″瀷璺敱閰嶇疆
+[ai.model_router]
+# 鑷姩璺敱鏄惁寮€鍚?enable_auto = true
+# 榛樿妯″瀷
+default_model = "gpt-3.5-turbo"
+# 璺敱瑙勫垯
+# [[ai.model_router.rules]]
+# pattern = "鐢粅鍥緗鍍?
+# target_model = "gpt-4-vision-preview"
+# [[ai.model_router.rules]]
+# pattern = "浠ｇ爜|缂栫▼|鍑芥暟"
+# target_model = "gpt-4"
+
+# 妯″瀷鏄犲皠閰嶇疆
+[ai.model_mapper]
+# 妯″瀷鏄犲皠瑙勫垯
+# [[ai.model_mapper.mappings]]
+# source = "gpt-3.*"
+# target = "qwen-turbo"
+# [[ai.model_mapper.mappings]]
+# source = "*"
+# target = "gpt-3.5-turbo"
+
+# AI缂撳瓨閰嶇疆
+[ai.cache]
+# 缂撳瓨TTL锛堢锛?cache_ttl = 3600
+# 鏈€澶х紦瀛樻潯鐩暟
+max_cache_size = 10000
+# 鏄惁缂撳瓨娴佸紡鍝嶅簲
+cache_stream = true
+
+# AI璐熻浇鍧囪　閰嶇疆
+[ai.loadbalancer]
+# 璐熻浇鍧囪　绛栫暐锛歭east_request, round_robin, random
+strategy = "least_request"
+# 鑺傜偣鍋ュ悍妫€鏌ラ棿闅旓紙绉掞級
+health_check_interval = 30
+# 鑺傜偣瓒呮椂鏃堕棿锛堢锛?node_timeout = 10
+
+# 鍙娴嬫€ч厤缃?[ai.observability]
+# 鏄惁鍚敤Prometheus鎸囨爣
+enable_metrics = true
+# Metrics鏆撮湶绔彛
+metrics_port = 9090
+# 鏄惁鍚敤鏃ュ織
+enable_log = true
+# 鏃ュ織绾у埆锛歞ebug, info, warn, error
+log_level = "info"
+# 鏄惁璁板綍璇锋眰鍐呭锛堟晱鎰熶俊鎭紝鐢熶骇鐜寤鸿鍏抽棴锛?log_request = false
+# 鏄惁璁板綍鍝嶅簲鍐呭锛堟晱鎰熶俊鎭紝鐢熶骇鐜寤鸿鍏抽棴锛?log_response = false
+
+# Prompt瑁呴グ閰嶇疆
+[ai.prompt_decorator]
+# System prompt鍓嶇紑
+system_prefix = ""
+# System prompt鍚庣紑
+system_suffix = ""
+# User prompt鍓嶇紑
+user_prefix = ""
+# User prompt鍚庣紑
+user_suffix = ""
+
+# IP闄愬埗閰嶇疆
+[ai.ip_restriction]
+# 鍏ㄥ眬鐧藉悕鍗旾P
+whitelist = []
+# 鍏ㄥ眬榛戝悕鍗旾P
+blacklist = []
+# 鏄惁鍚敤CIDR鍖归厤
+enable_cidr = true
+
+# CORS閰嶇疆
+[ai.cors]
+# 鍏佽鐨凮rigin
+allow_origins = ["*"]
+# 鍏佽鐨凪ethods
+allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+# 鍏佽鐨凥eaders
+allow_headers = ["*"]
+# 鏆撮湶鐨凥eaders
+expose_headers = ["Content-Length"]
+# 鏄惁鍏佽鍑嵁
+allow_credentials = true
+# 棰勬璇锋眰缂撳瓨鏃堕棿锛堢锛?max_age = 3600
+
+# Redis閰嶇疆锛堢敤浜庡垎甯冨紡闄愭祦銆佺紦瀛樼瓑锛?[ai.redis]
+# Redis鍦板潃
+addr = "127.0.0.1:6379"
+# Redis瀵嗙爜
+password = "<redis_password_or_empty>"
+# 鏁版嵁搴撶紪鍙?db = 0
+# 杩炴帴姹犲ぇ灏?pool_size = 10
+# 杩炴帴瓒呮椂锛堢锛?timeout = 5
+
+
+
+# Pipeline 编排配置
+[ai.pipeline]
+# 严格依赖校验：true 时，依赖不满足的插件会被自动禁用
+strict_dependency = true
+
+# 全局优先级覆写（插件名 -> priority）
+# [ai.pipeline.priority_overrides]
+# "ai.quota" = 980
+# "ai.token_ratelimit" = 970
+
+# 服务级优先级覆写（service_id 或 service_name -> 插件priority映射）
+# [ai.pipeline.service_priority_overrides."1"]
+# "ai.quota" = 990
+# [ai.pipeline.service_priority_overrides."my-ai-service"]
+# "ai.model_router" = 1200
