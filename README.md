@@ -1,26 +1,104 @@
-﻿# AI Gateway (AIGateway)
+﻿# AIGateway
 
-本项目是基于 Gin 的 API 网关，当前重点是 AI 代理链路：认证、模型路由/映射、限流、配额、缓存、负载均衡、可观测、Prompt 装饰、IP 限制和 CORS。
+一个面向 AI 场景的 Go 网关项目，提供“认证、策略、改写、缓存、观测、转发”一体化能力。  
+当前主链路已完成插件化重构：由 `PipelinePlan + Executor` 动态编排执行，支持按服务生效与热更新。
 
-## 1. 快速启动
+---
 
-### 1.1 环境要求
+## Why AIGateway
+
+相比传统固定中间件链路，AIGateway 的目标是：
+
+- 按服务动态编排：同一网关内，不同服务可跑不同插件链
+- 插件原生化：能力以 Plugin 组织，新增能力不改路由主链
+- 可观测可回滚：提供计划查看、缓存查看、失效接口
+- 面向 AI 代理：内置模型路由、Prompt 装饰、Token 限流、Quota、缓存、AI 负载均衡等
+
+---
+
+## Core Features
+
+- 动态执行链（Phase + Plan + Executor）
+- 统一认证（JWT / API Key）
+- AI 策略能力
+- `ai.model_router`
+- `ai.prompt_decorator`
+- `ai.token_ratelimit`
+- `ai.quota`
+- `ai.cache`
+- `ai.load_balancer`
+- `ai.observability`
+- 代理能力
+- `proxy.header_transfer`
+- `proxy.strip_uri`
+- `proxy.url_rewrite`
+- `proxy.reverse_proxy`
+- 运行时管理能力
+- `/admin/pipeline/plugins`
+- `/admin/pipeline/plan`
+- `/admin/pipeline/cache`
+- `/admin/pipeline/invalidate`
+
+---
+
+## Architecture
+
+### Request Flow
+
+```mermaid
+flowchart LR
+    A[Client Request] --> B[HTTPAccessModeMiddleware]
+    B --> C[PipelinePlanMiddleware]
+    C --> D[PipelineExecutorMiddleware]
+    D --> E[Phase: preflight]
+    E --> F[Phase: edge_guard]
+    F --> G[Phase: authn/policy]
+    G --> H[Phase: transform]
+    H --> I[Phase: traffic/observe]
+    I --> J[Phase: proxy]
+    J --> K[Upstream Service]
+```
+
+### Runtime Layers
+
+- `http_proxy_router`：server 入口路由（只保留主链入口）
+- `http_proxy_pipeline`：Plan 编译、缓存、执行器调度
+- `http_proxy_plugin`：插件契约、注册表、原生插件实现
+- `ai_gateway/*`：AI 域能力模块
+- `dao` / `controller`：配置与管理接口
+
+---
+
+## Repository Layout
+
+```text
+.
+├── main.go
+├── http_proxy_router/      # 代理入口
+├── http_proxy_pipeline/    # 计划编排与执行器
+├── http_proxy_plugin/      # 插件运行时与插件实现
+├── http_proxy_middleware/  # 历史中间件（兼容/参考）
+├── ai_gateway/             # AI 子模块
+├── controller/             # 管理端控制器
+├── dao/                    # 数据访问与运行时模型
+├── router/                 # dashboard 路由
+├── conf/dev/               # 本地配置模板（*.example.toml）
+└── sql/                    # 表结构脚本
+```
+
+---
+
+## Quick Start
+
+### 1. Prerequisites
 
 - Go 1.24+
-- MySQL 8.x（默认 `127.0.0.1:3306`）
-- Redis 6.x/7.x（默认 `127.0.0.1:6379`）
+- MySQL 8+
+- Redis 6+
 
-### 1.2 配置文件
+### 2. 配置
 
-开发环境默认目录：`./conf/dev/`
-
-- `conf/dev/base.toml`：管理端（dashboard）服务配置
-- `conf/dev/proxy.toml`：代理端（server）服务配置，默认 `:8080`
-- `conf/dev/mysql_map.toml`：MySQL 连接
-- `conf/dev/redis_map.toml`：Redis 连接
-- `conf/dev/ai.toml`：AI 网关能力总配置（开关、链路参数等）
-
-仓库默认提交的是脱敏模板文件（`*.example.toml`），本地运行前请复制为真实配置：
+仓库默认提交的是脱敏模板配置，请先复制为本地配置：
 
 ```powershell
 Copy-Item .\conf\dev\base.example.toml .\conf\dev\base.toml
@@ -31,226 +109,159 @@ Copy-Item .\conf\dev\redis.example.toml .\conf\dev\redis.toml
 Copy-Item .\conf\dev\ai.example.toml .\conf\dev\ai.toml
 ```
 
-### 1.3 数据库初始化
+再按你的环境修改：MySQL/Redis 地址、账号、密码、端口等。
 
-先创建数据库（默认名 `gateway`），再导入表结构：
+### 3. 初始化数据库
 
 ```powershell
 mysql -uroot -p gateway < .\sql\ai_tables.sql
 ```
 
-如果你的环境已经有表，可跳过导入。
+### 4. 启动服务
 
-### 1.4 启动命令
-
-在项目根目录执行：
-
-1. 启动 AI 代理服务（主链路）
+启动代理服务（server）：
 
 ```powershell
 go run main.go -endpoint server -config ./conf/dev/
 ```
 
-2. 启动管理后台服务（配置管理/Swagger）
+启动管理服务（dashboard）：
 
 ```powershell
 go run main.go -endpoint dashboard -config ./conf/dev/
 ```
 
-### 1.5 健康检查
+### 5. 健康检查
 
-- 代理服务：`GET http://127.0.0.1:8080/ping`
-- 管理服务：`GET http://127.0.0.1:8880/ping`
-- Swagger：`http://127.0.0.1:8880/swagger/index.html`
+- Proxy: `GET http://127.0.0.1:8080/ping`
+- Dashboard: `GET http://127.0.0.1:8880/ping`
+- Swagger: `http://127.0.0.1:8880/swagger/index.html`
 
-## 2. AI 链路顺序（server 模式）
+### 6. 项目启动教学（手把手）
 
-注册位置：`http_proxy_router/router.go`
+如果你是第一次跑这个项目，建议按下面顺序执行：
 
-当前是“阶段化 + 动态计划”执行，不再是固定硬编码全开链路。
-
-### 2.1 执行阶段
-
-1. `HTTPAccessModeMiddleware`
-2. `PipelinePlanMiddleware`
-3. `PipelineExecutorMiddleware`（按 Plan 顺序执行插件链）
-
-说明：
-- 主链路已由 Executor 接管，不再在 `router.go` 静态逐条注册 AI/代理中间件。
-- 当前已迁移为 native plugin：`core.flow_count/core.flow_limit/core.white_list/core.black_list/ai.auth/ai.ip_restriction/ai.token_ratelimit/ai.quota/ai.model_router/ai.prompt_decorator/ai.cache/ai.load_balancer/ai.observability/proxy.header_transfer/proxy.strip_uri/proxy.url_rewrite/proxy.reverse_proxy`。
-- 当前仅 `ai.cors` 仍通过 adapter 运行（Preflight 阶段），其余主链路插件已迁移为 native plugin。
-
-### 2.2 动态计划能力
-
-- 按 `service_id + config_version` 构建并缓存 Plan。
-- 支持插件依赖校验（strict / non-strict）。
-- 支持全局与服务级插件优先级覆写。
-- Debug 模式可返回 `X-Pipeline-*` 头查看计划。
-
-### 2.3 热更新行为
-
-服务配置变更后（新增/更新/删除），会自动：
-- `ServiceManager.Reload()` 重新加载服务路由缓存。
-- `http_proxy_pipeline.InvalidateService(serviceID)` 失效该服务 Plan 缓存。
-
-## 3. 功能与文件对照
-
-### 3.1 启动与初始化
-
-- `main.go`
-  - 程序入口，按 `-endpoint` 选择 `server` 或 `dashboard`
-- `ai_gateway/bootstrap.go`
-  - AI 配置加载、Redis 客户端初始化、Consumer 预热、Metrics 启动
-- `ai_gateway/init.go`
-  - 全局组件初始化（quota/prompt/ip restriction 等）
-- `ai_gateway/config/config.go`
-  - AI 配置结构体定义
-- `ai_gateway/config/manager.go`
-  - AI 配置加载管理（读取 `conf/dev/ai.toml`）
-
-### 3.2 认证与身份
-
-- `ai_gateway/auth/key_auth.go`
-  - Key 认证核心逻辑
-- `ai_gateway/auth/jwt_auth.go`
-  - JWT 验证逻辑
-- `ai_gateway/jwt/validator.go`
-  - JWT 校验器（算法/签名校验）
-- `http_proxy_middleware/ai_auth_middleware.go`
-  - 统一鉴权中间件（JWT 优先，Key 回退）
-- `http_proxy_middleware/ai_key_auth_middleware.go`
-  - Key 认证实现（保留，当前主链路由统一鉴权接管）
-- `http_proxy_middleware/ai_jwt_auth_middleware.go`
-  - JWT 认证实现（保留，当前主链路由统一鉴权接管）
-
-### 3.3 Token 解析
-
-- `ai_gateway/token/parser.go`
-  - 请求体 token 估算与解析
-- `ai_gateway/token/stream_parser.go`
-  - 流式响应 token 解析
-- `http_proxy_middleware/ai_middleware_helpers.go`
-  - 请求体读写、上下文字段辅助
-
-### 3.4 模型路由与映射
-
-- `ai_gateway/model/router.go`
-  - 模型路由规则匹配
-- `ai_gateway/model/mapper.go`
-  - 模型名映射
-- `ai_gateway/model/middleware.go`
-  - 模型处理中间件能力
-- `http_proxy_middleware/ai_model_router_middleware.go`
-  - 代理链路中的模型路由/映射入口
-
-### 3.5 限流与配额
-
-- `ai_gateway/ratelimit/token_limiter.go`
-  - Token 限流核心逻辑
-- `ai_gateway/ratelimit/redis_script.go`
-  - Redis Lua 脚本与窗口计数
-- `http_proxy_middleware/ai_token_ratelimit_middleware.go`
-  - 限流中间件
-- `ai_gateway/quota/manager.go`
-  - 配额管理（Redis + DB）
-- `ai_gateway/quota/middleware.go`
-  - 配额中间件
-- `http_proxy_middleware/ai_quota_middleware.go`
-  - 代理链路配额入口
-
-### 3.6 缓存与负载均衡
-
-- `ai_gateway/cache/string_cache.go`
-  - 字符串缓存实现
-- `ai_gateway/cache/cache_writer.go`
-  - 响应写入缓存逻辑
-- `http_proxy_middleware/ai_cache_middleware.go`
-  - 缓存中间件
-- `ai_gateway/loadbalancer/global_least_request.go`
-  - 最少请求负载均衡器
-- `http_proxy_middleware/ai_loadbalancer_middleware.go`
-  - 负载均衡中间件
-
-### 3.7 可观测与日志
-
-- `ai_gateway/observability/metrics.go`
-  - Prometheus 指标定义与输出
-- `ai_gateway/observability/logger.go`
-  - 结构化日志
-- `ai_gateway/observability/middleware.go`
-  - 请求耗时/状态码/模型/token 指标采集
-- `http_proxy_middleware/ai_observability_middleware.go`
-  - 可观测中间件接入
-
-### 3.8 Prompt 装饰、IP 限制、CORS
-
-- `ai_gateway/prompt/decorator.go`
-  - Prompt 规则装饰与改写
-- `http_proxy_middleware/ai_prompt_middleware.go`
-  - Prompt 中间件
-- `ai_gateway/security/ip_restriction.go`
-  - IP/CIDR 黑白名单判断
-- `http_proxy_middleware/ai_ip_restriction_middleware.go`
-  - IP 限制中间件
-- `http_proxy_middleware/ai_cors_middleware.go`
-  - CORS 预检与响应头处理
-
-### 3.9 管理接口（Admin）
-
-路由注册：`router/route.go`
-
-- Consumer 管理：`controller/ai_consumer.go`
-  - `GET /admin/ai/consumer/list`
-  - `POST /admin/ai/consumer/add`
-  - `PUT /admin/ai/consumer/update/:id`
-  - `DELETE /admin/ai/consumer/delete/:id`
-  - `POST /admin/ai/consumer/reload`
-- Quota 管理：`controller/ai_quota.go`
-  - `GET /admin/ai/quota?consumer_name=...`
-  - `POST /admin/ai/quota/refresh`
-  - `POST /admin/ai/quota/delta`
-- AI Service 配置：`controller/ai_service_config.go`
-  - `GET /admin/ai/service-config/list`
-  - `GET /admin/ai/service-config/detail?service_id=...`
-  - `POST /admin/ai/service-config/upsert`
-  - `DELETE /admin/ai/service-config/delete/:service_id`
-  - `POST /admin/ai/service-config/reload`
-- Pipeline 管理：`controller/pipeline.go`
-  - `GET /admin/pipeline/plugins`
-  - `GET /admin/pipeline/plan?service_id=...`（或 `service_name=...`）
-  - `GET /admin/pipeline/cache`
-  - `POST /admin/pipeline/invalidate`（body/query 可带 `service_id`，不带则全量失效）
-
-说明：`/admin/*` 默认有 session 鉴权中间件，调用前需先登录后台。
-
-### 3.10 数据模型与表结构
-
-- DAO：
-  - `dao/ai_consumer.go` -> `ai_consumer`
-  - `dao/ai_quota.go` -> `ai_quota`
-  - `dao/ai_service_config.go` -> `ai_service_config`
-- SQL 初始化：`sql/ai_tables.sql`
-
-## 4. 常用测试命令
+1. 安装依赖并确认版本
 
 ```powershell
-go test ./ai_gateway/...
-go test ./http_proxy_middleware
-go test ./http_proxy_router
-go test ./controller ./router ./dao
+go version
+mysql --version
+redis-server --version
 ```
 
-## 5. 常见问题
+2. 启动 MySQL 和 Redis（或使用你本地已运行实例）
 
-### 5.1 启动报错 `open ai: The system cannot find the file specified`
+```powershell
+# 示例：本地直接启动 Redis（如已在服务中运行可跳过）
+redis-server
+```
 
-原因：AI 配置加载路径错误。
+3. 复制配置模板并填写真实连接信息
 
-现版本已修复为从 `lib.GetConfPath("ai")` 读取（即 `./conf/dev/ai.toml`）。如果仍报错，请确认：
+```powershell
+Copy-Item .\conf\dev\base.example.toml .\conf\dev\base.toml
+Copy-Item .\conf\dev\proxy.example.toml .\conf\dev\proxy.toml
+Copy-Item .\conf\dev\mysql_map.example.toml .\conf\dev\mysql_map.toml
+Copy-Item .\conf\dev\redis_map.example.toml .\conf\dev\redis_map.toml
+Copy-Item .\conf\dev\redis.example.toml .\conf\dev\redis.toml
+Copy-Item .\conf\dev\ai.example.toml .\conf\dev\ai.toml
+```
 
-- 启动参数为 `-config ./conf/dev/`
-- `conf/dev/ai.toml` 文件存在
-- 当前工作目录是项目根目录
+4. 初始化数据库
 
+```powershell
+mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS gateway DEFAULT CHARSET utf8mb4;"
+mysql -uroot -p gateway < .\sql\ai_tables.sql
+```
 
+5. 启动代理服务（窗口 A）
 
+```powershell
+go run main.go -endpoint server -config ./conf/dev/
+```
+
+6. 启动管理服务（窗口 B）
+
+```powershell
+go run main.go -endpoint dashboard -config ./conf/dev/
+```
+
+7. 验证服务是否启动成功
+
+```powershell
+curl http://127.0.0.1:8080/ping
+curl http://127.0.0.1:8880/ping
+```
+
+如果两个接口都返回 `pong`（或 200），说明项目已可用。
+
+### 7. 常见启动问题
+
+- 报错 `open ai: The system cannot find the file specified`
+- 检查是否使用了 `-config ./conf/dev/`，并确认 `conf/dev/ai.toml` 存在。
+- 报错 MySQL 连接失败
+- 检查 `conf/dev/mysql_map.toml` 的地址、账号、密码和数据库名是否正确。
+- 报错 Redis 连接失败
+- 检查 `conf/dev/redis_map.toml` 或 `conf/dev/redis.toml` 的地址和密码配置。
+- 端口被占用（8080/8880）
+- 修改 `conf/dev/proxy.toml` 或 `conf/dev/base.toml` 后重启服务。
+
+---
+
+## Pipeline Admin APIs
+
+- `GET /admin/pipeline/plugins`
+- `GET /admin/pipeline/plan?service_id=...` 或 `service_name=...`
+- `GET /admin/pipeline/cache`
+- `POST /admin/pipeline/invalidate`
+
+说明：`/admin/*` 默认受后台会话鉴权保护。
+
+---
+
+## Performance Design
+
+当前已落地的核心性能策略：
+
+- Plan 缓存：按 `service_id + config_version` 缓存计划
+- 并发去重：同 key 的并发 miss 只编译一次（singleflight 思路）
+- 运行时配置缓存：`ai_service_config` 走内存缓存，避免请求期 DB 查询
+- 失效机制：服务配置更新后按服务失效计划缓存并刷新运行时配置
+
+---
+
+## Testing
+
+常用测试命令：
+
+```powershell
+go test ./http_proxy_pipeline ./http_proxy_plugin ./http_proxy_middleware
+go test ./ai_gateway/... ./http_proxy_pipeline ./http_proxy_middleware ./http_proxy_router ./controller ./router ./dao
+```
+
+---
+
+## Roadmap
+
+- 完成 `ai.cors` 从 adapter 到 native plugin 迁移
+- 增强插件参数化能力（按服务/按环境）
+- 增强观测指标（plan cache hit/miss、build latency）
+- 补齐更多 e2e 与流式场景集成测试
+
+---
+
+## Contributing
+
+欢迎 Issue / PR。建议提交前：
+
+- 保持变更最小化、可回溯
+- 为新增插件补充单测（成功路径 + 失败路径）
+- 跑通关键测试命令
+
+---
+
+## Security Notes
+
+- 不要提交真实密钥、密码、Token、连接串
+- 使用 `conf/dev/*.example.toml` 作为模板
+- 生产环境请使用环境变量或密钥管理系统托管敏感信息

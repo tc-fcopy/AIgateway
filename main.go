@@ -5,6 +5,7 @@ import (
 	"gateway/ai_gateway"
 	"gateway/dao"
 	"gateway/golang_common/lib"
+	"gateway/http_proxy_pipeline"
 	"gateway/http_proxy_plugin"
 	"gateway/http_proxy_router"
 	"gateway/router"
@@ -53,6 +54,9 @@ func main() {
 
 	if err := ai_gateway.Bootstrap(); err != nil {
 		log.Printf("[WARN] ai_gateway bootstrap failed: %v", err)
+	}
+	if err := http_proxy_pipeline.ReloadAIServiceConfigRuntime(0); err != nil {
+		log.Printf("[WARN] preload ai service config runtime failed: %v", err)
 	}
 
 	go func() {
