@@ -3,6 +3,9 @@ package http_proxy_pipeline
 import (
 	"fmt"
 	"sort"
+
+	"gateway/http_proxy_plugin"
+	"github.com/gin-gonic/gin"
 )
 
 func defaultPluginSpecs() []PluginSpec {
@@ -41,7 +44,7 @@ func defaultPluginSpecs() []PluginSpec {
 
 func alwaysOn(_ *PlanContext) bool { return true }
 
-func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec) *Plan {
+func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec, registry *http_proxy_plugin.Registry) *Plan {
 	// ========== 步骤1：应用优先级覆盖规则（服务级优先级 > 插件默认优先级） ==========
 	effective := applyPriorityOverrides(specs, pc.PriorityOverrides)
 	// 作用：
@@ -87,14 +90,51 @@ func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []Plu
 		set[sp.Name] = struct{}{}          // 插件集合，用于后续快速判断（如plan.Has(pluginName)）
 	}
 
-	// ========== 步骤6：构建并返回最终的Plan ==========
+	// ========== 步骤6：编译执行链 ==========
+	compiled := compileExecChain(validated, registry, pc.ConfigVersion())
+
+	// 保存单个 handlers 用于调试
+	var compiledHandlers []gin.HandlerFunc
+	if compiled != nil {
+		compiledHandlers = make([]gin.HandlerFunc, 0, len(validated))
+		for _, sp := range validated {
+			plugin, ok := registry.Get(sp.Name)
+			if !ok {
+				continue
+			}
+
+			if middlewarePlugin, ok := plugin.(MiddlewarePlugin); ok && middlewarePlugin.Handler() != nil {
+				legacy := middlewarePlugin.Handler()
+				compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
+					ec := http_proxy_plugin.NewExecContext(c)
+					ec.PlanVersion = pc.ConfigVersion()
+					legacy(c)
+				})
+			} else {
+				compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
+					ec := http_proxy_plugin.NewExecContext(c)
+					ec.PlanVersion = pc.ConfigVersion()
+
+					result := plugin.Execute(ec)
+					if result.IsAbort() {
+						handlePluginAbort(c, result)
+						return
+					}
+				})
+			}
+		}
+	}
+
+	// ========== 步骤7：构建并返回最终的Plan ==========
 	return &Plan{
-		ServiceID:     serviceID,          // 服务ID
-		ServiceName:   serviceName,        // 服务名称
-		ConfigVersion: pc.ConfigVersion(), // 配置版本（用于缓存Key）
-		Plugins:       plugins,            // 排序后的插件名称列表（Executor执行的核心依据）
-		Warnings:      warnings,           // 构建过程中的警告（如依赖缺失）
-		pluginSet:     set,                // 插件集合（优化后续Has方法的查询性能）
+		ServiceID:         serviceID,          // 服务ID
+		ServiceName:       serviceName,        // 服务名称
+		ConfigVersion:     pc.ConfigVersion(), // 配置版本（用于缓存Key）
+		Plugins:           plugins,            // 排序后的插件名称列表（Executor执行的核心依据）
+		Warnings:          warnings,           // 构建过程中的警告（如依赖缺失）
+		pluginSet:         set,                // 插件集合（优化后续Has方法的查询性能）
+		CompiledHandler:   compiled,           // 预编译的执行链
+		CompiledHandlers:  compiledHandlers,   // 调试用：单独的 handler 链
 	}
 }
 func applyPriorityOverrides(specs []PluginSpec, overrides map[string]int) []PluginSpec {
@@ -161,6 +201,48 @@ func validateDependencies(enabled []PluginSpec, strict bool) ([]PluginSpec, []st
 	}
 
 	return current, warnings
+}
+
+func compileExecChain(specs []PluginSpec, registry *http_proxy_plugin.Registry, planVersion string) gin.HandlerFunc {
+	var handlers []gin.HandlerFunc
+
+	for _, sp := range specs {
+		plugin, ok := registry.Get(sp.Name)
+		if !ok {
+			continue
+		}
+
+		if middlewarePlugin, ok := plugin.(MiddlewarePlugin); ok && middlewarePlugin.Handler() != nil {
+			legacy := middlewarePlugin.Handler()
+			handlers = append(handlers, func(c *gin.Context) {
+				ec := http_proxy_plugin.NewExecContext(c)
+				ec.PlanVersion = planVersion
+				legacy(c)
+			})
+		} else {
+			handlers = append(handlers, func(c *gin.Context) {
+				ec := http_proxy_plugin.NewExecContext(c)
+				ec.PlanVersion = planVersion
+
+				result := plugin.Execute(ec)
+				if result.IsAbort() {
+					// 调用 executor.go 中的 handlePluginAbort
+					handlePluginAbort(c, result)
+					return
+				}
+			})
+		}
+	}
+
+	return func(c *gin.Context) {
+		for _, h := range handlers {
+			h(c)
+			if c.IsAborted() {
+				return
+			}
+		}
+		c.Next()
+	}
 }
 
 func toPluginSet(specs []PluginSpec) map[string]struct{} {

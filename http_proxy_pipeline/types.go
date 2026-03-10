@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Phase defines logical execution stages for plugins.
@@ -119,12 +121,14 @@ type PluginSpec struct {
 
 // Plan is the compiled execution plan for a service.
 type Plan struct {
-	ServiceID     int64
-	ServiceName   string
-	ConfigVersion string
-	Plugins       []string
-	Warnings      []string
-	pluginSet     map[string]struct{}
+	ServiceID         int64
+	ServiceName       string
+	ConfigVersion     string
+	Plugins           []string
+	Warnings          []string
+	pluginSet         map[string]struct{}
+	CompiledHandler   gin.HandlerFunc    // 预编译的执行链
+	CompiledHandlers  []gin.HandlerFunc  // 调试用：单独的 handler 链
 }
 
 func (p *Plan) Has(pluginName string) bool {

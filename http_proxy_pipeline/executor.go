@@ -53,17 +53,27 @@ func (e *Executor) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		chain, err := e.compileHandlers(plan)
-		if err != nil {
-			writeExecutorError(c, http.StatusInternalServerError, 5002, err.Error())
-			return
-		}
-
 		c.Set(CtxExecutorEnabled, true)
 		if isDebugPlan(c) {
 			c.Header("X-Pipeline-Executor", "1")
 		}
-		runHandlersChain(c, chain)
+
+		// 优先使用预编译的执行链
+		if plan.CompiledHandler != nil {
+			if isDebugPlan(c) {
+				c.Header("X-Pipeline-Compiled", "1")
+			}
+			plan.CompiledHandler(c)
+		} else {
+			// 降级到传统方式
+			chain, err := e.compileHandlers(plan)
+			if err != nil {
+				writeExecutorError(c, http.StatusInternalServerError, 5002, err.Error())
+				return
+			}
+			runHandlersChain(c, chain)
+		}
+
 		if !c.IsAborted() {
 			// Executor owns the proxy main chain and should stop outer gin handlers.
 			c.Abort()

@@ -9,12 +9,13 @@ import (
 	"gateway/ai_gateway/config"
 	"gateway/dao"
 	"gateway/golang_common/lib"
+	"gateway/http_proxy_plugin"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 var (
-	defaultPlanner              = NewPlanner()
+	defaultPlanner              = NewPlanner(http_proxy_plugin.GlobalRegistry)
 	aiServiceConfigRuntimeCache = newAIServiceConfigRuntime()
 	aiServiceConfigBulkLoader   = defaultAIServiceConfigBulkLoader
 	aiServiceConfigSingleLoader = defaultAIServiceConfigSingleLoader
@@ -59,15 +60,21 @@ func CachedPlans() []CachedPlanSnapshot {
 // Planner compiles and caches per-service plans.
 type Planner struct {
 	specs    []PluginSpec
+	registry *http_proxy_plugin.Registry // 插件注册表
 	mu       sync.RWMutex
 	cache    map[string]*Plan
 	inflight map[string]*planCall
-	buildFn  func(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec) *Plan
+	buildFn  func(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec, registry *http_proxy_plugin.Registry) *Plan
 }
 
-func NewPlanner() *Planner {
+func NewPlanner(registry *http_proxy_plugin.Registry) *Planner {
+	if registry == nil {
+		registry = http_proxy_plugin.GlobalRegistry
+	}
+
 	return &Planner{
 		specs:    defaultPluginSpecs(),
+		registry: registry,
 		cache:    map[string]*Plan{},
 		inflight: map[string]*planCall{},
 		buildFn:  buildPlan,
@@ -166,7 +173,7 @@ func (p *Planner) Build(c *gin.Context, service *dao.ServiceDetail) (*Plan, erro
 	if buildFn == nil {
 		buildFn = buildPlan // 默认构建函数
 	}
-	plan := buildFn(pc.ServiceID, pc.ServiceName, pc, p.specs)
+	plan := buildFn(pc.ServiceID, pc.ServiceName, pc, p.specs, p.registry)
 
 	// ===== 构建完成：更新缓存 + 通知等待的请求 =====
 	p.mu.Lock()

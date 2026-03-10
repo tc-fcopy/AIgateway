@@ -1,6 +1,10 @@
 package http_proxy_pipeline
 
-import "testing"
+import (
+	"testing"
+
+	"gateway/http_proxy_plugin"
+)
 
 func TestBuildPlan_StrictDependencyDisablesPlugin(t *testing.T) {
 	pc := &PlanContext{
@@ -11,7 +15,7 @@ func TestBuildPlan_StrictDependencyDisablesPlugin(t *testing.T) {
 		PriorityOverrides: map[string]int{},
 	}
 
-	plan := buildPlan(1, "svc", pc, defaultPluginSpecs())
+	plan := buildPlan(1, "svc", pc, defaultPluginSpecs(), http_proxy_plugin.GlobalRegistry)
 	if plan.Has(PluginAITokenRateLimit) {
 		t.Fatalf("expected %s to be disabled when %s is missing in strict mode", PluginAITokenRateLimit, PluginAIAuth)
 	}
@@ -29,7 +33,7 @@ func TestBuildPlan_NonStrictDependencyKeepsPlugin(t *testing.T) {
 		PriorityOverrides: map[string]int{},
 	}
 
-	plan := buildPlan(1, "svc", pc, defaultPluginSpecs())
+	plan := buildPlan(1, "svc", pc, defaultPluginSpecs(), http_proxy_plugin.GlobalRegistry)
 	if !plan.Has(PluginAITokenRateLimit) {
 		t.Fatalf("expected %s to remain enabled in non-strict mode", PluginAITokenRateLimit)
 	}
@@ -48,7 +52,7 @@ func TestBuildPlan_PriorityOverride(t *testing.T) {
 		PriorityOverrides: map[string]int{PluginAIQuota: 990},
 	}
 
-	plan := buildPlan(1, "svc", pc, defaultPluginSpecs())
+	plan := buildPlan(1, "svc", pc, defaultPluginSpecs(), http_proxy_plugin.GlobalRegistry)
 	quotaIdx := indexOf(plan.Plugins, PluginAIQuota)
 	rateIdx := indexOf(plan.Plugins, PluginAITokenRateLimit)
 	if quotaIdx < 0 || rateIdx < 0 {
@@ -69,7 +73,7 @@ func indexOf(list []string, target string) int {
 }
 
 func TestPlannerCachedPlans_ReturnsCopy(t *testing.T) {
-	p := NewPlanner()
+	p := NewPlanner(nil)
 	p.cache["1:test"] = &Plan{
 		ServiceID:     1,
 		ServiceName:   "svc-test",

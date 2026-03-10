@@ -8,6 +8,7 @@ import (
 
 	aiconfig "gateway/ai_gateway/config"
 	"gateway/dao"
+	"gateway/http_proxy_plugin"
 )
 
 func TestBuildPlanContext_AIServiceConfigRuntimeCached(t *testing.T) {
@@ -115,7 +116,7 @@ func TestReloadAIServiceConfigRuntime_OneService(t *testing.T) {
 }
 
 func TestPlannerBuild_SingleflightDedup(t *testing.T) {
-	p := NewPlanner()
+	p := NewPlanner(nil)
 	p.specs = []PluginSpec{
 		{
 			Name:     "test.plugin",
@@ -126,10 +127,10 @@ func TestPlannerBuild_SingleflightDedup(t *testing.T) {
 	}
 
 	var buildCalls int32
-	p.buildFn = func(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec) *Plan {
+	p.buildFn = func(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec, registry *http_proxy_plugin.Registry) *Plan {
 		atomic.AddInt32(&buildCalls, 1)
 		time.Sleep(40 * time.Millisecond)
-		return buildPlan(serviceID, serviceName, pc, specs)
+		return buildPlan(serviceID, serviceName, pc, specs, registry)
 	}
 
 	service := &dao.ServiceDetail{
