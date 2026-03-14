@@ -2,7 +2,6 @@ package load_balance
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"strings"
 	"sync"
@@ -58,7 +57,7 @@ func (r *RandomBalance) SetConf(conf LoadBalanceConf) {
 
 func (r *RandomBalance) Update() {
 	if conf, ok := r.conf.(*LoadBalanceCheckConf); ok {
-		fmt.Println("Update get check conf:", conf.GetConf())
+		// fmt.Println("Update get check conf:", conf.GetConf())
 		var nodes []string
 		for _, ip := range conf.GetConf() {
 			parts := strings.Split(ip, ",")

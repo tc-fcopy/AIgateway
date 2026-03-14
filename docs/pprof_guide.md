@@ -1,14 +1,19 @@
 ﻿# AIGateway pprof + 压测操作指南（可直接复制执行）
 
 ## 终端 A：启动网关
-
+Windows
 ```powershell
 cd D:\ygrttdx\golangPrpjects\AIcoding\ClaudeCoding\AIGateway
-go run main.go -endpoint server -config D:\ygrttdx\golangPrpjects\AIcoding\ClaudeCoding\AIGateway\conf\dev
+go run main.go -endpoint server -config .\conf\dev
+```
+Linux
+```powershell
+cd /root/go_project/AI_gateway/AIgateway/
+go run main.go -endpoint server -config ./conf/dev/
 ```
 
 ## 终端 B：压测（可直接复制执行）
-
+Windows
 ```powershell
 go run .\scripts\loadtest\loadtest.go `
   -url http://127.0.0.1:8080/v1/chat/completions `
@@ -16,6 +21,16 @@ go run .\scripts\loadtest\loadtest.go `
   -H "Authorization: Bearer xxx" `
   -H "Content-Type: application/json" `
   -body '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}' `
+  -c 100 -d 120s -timeout 10s
+```
+Linux
+```powershell
+go run ./scripts/loadtest/loadtest.go \
+  -url http://127.0.0.1:8080/v1/chat/completions \
+  -method POST \
+  -H "Authorization: Bearer xxx" \
+  -H "Content-Type: application/json" \
+  -body '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}' \
   -c 100 -d 120s -timeout 10s
 ```
 

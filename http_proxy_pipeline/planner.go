@@ -84,6 +84,7 @@ func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []Plu
 				legacy := middlewarePlugin.Handler()
 				compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
 					ec := http_proxy_plugin.NewExecContext(c)
+					defer http_proxy_plugin.ReleaseExecContext(ec)
 					ec.PlanVersion = pc.ConfigVersion()
 					legacy(c)
 				})
@@ -92,6 +93,7 @@ func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []Plu
 
 			compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
 				ec := http_proxy_plugin.NewExecContext(c)
+				defer http_proxy_plugin.ReleaseExecContext(ec)
 				ec.PlanVersion = pc.ConfigVersion()
 
 				result := plugin.Execute(ec)
@@ -194,6 +196,7 @@ func compileExecChain(specs []PluginSpec, registry *http_proxy_plugin.Registry, 
 			legacy := middlewarePlugin.Handler()
 			handlers = append(handlers, func(c *gin.Context) {
 				ec := http_proxy_plugin.NewExecContext(c)
+				defer http_proxy_plugin.ReleaseExecContext(ec)
 				ec.PlanVersion = planVersion
 				legacy(c)
 			})
@@ -202,6 +205,7 @@ func compileExecChain(specs []PluginSpec, registry *http_proxy_plugin.Registry, 
 
 		handlers = append(handlers, func(c *gin.Context) {
 			ec := http_proxy_plugin.NewExecContext(c)
+			defer http_proxy_plugin.ReleaseExecContext(ec)
 			ec.PlanVersion = planVersion
 
 			result := plugin.Execute(ec)

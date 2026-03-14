@@ -85,7 +85,9 @@ func (p *AICachePlugin) Handler() gin.HandlerFunc {
 		pluginResetBody(c, body)
 
 		payload, _ := pluginParseJSONBody(body)
-		modelName := pluginGetModel(payload, NewExecContext(c))
+		ec := NewExecContext(c)
+		modelName := pluginGetModel(payload, ec)
+		ReleaseExecContext(ec)
 		if modelName == "" {
 			modelName = "default"
 		}

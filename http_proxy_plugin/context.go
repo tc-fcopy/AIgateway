@@ -2,6 +2,7 @@ package http_proxy_plugin
 
 import (
 	"context"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,17 +16,47 @@ type ExecContext struct {
 	values      map[string]interface{}
 }
 
+var execContextPool = sync.Pool{
+	New: func() interface{} {
+		return &ExecContext{values: map[string]interface{}{}}
+	},
+}
+
 func NewExecContext(c *gin.Context) *ExecContext {
-	e := &ExecContext{Gin: c, values: map[string]interface{}{}}
-	if c == nil {
-		return e
+	e := execContextPool.Get().(*ExecContext)
+	e.reset(c)
+	return e
+}
+
+func ReleaseExecContext(e *ExecContext) {
+	if e == nil {
+		return
+	}
+	e.reset(nil)
+	execContextPool.Put(e)
+}
+
+func (e *ExecContext) reset(c *gin.Context) {
+	e.Gin = c
+	e.ServiceID = 0
+	e.ServiceName = ""
+	e.PlanVersion = ""
+
+	if e.values == nil {
+		e.values = map[string]interface{}{}
+	} else {
+		for k := range e.values {
+			delete(e.values, k)
+		}
 	}
 
+	if c == nil {
+		return
+	}
 	e.ServiceName = c.GetString("service_name")
 	if v, ok := c.Get("service_id"); ok {
 		e.ServiceID = toInt64(v)
 	}
-	return e
 }
 
 func (e *ExecContext) RequestContext() context.Context {

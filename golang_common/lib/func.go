@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/hex"
@@ -305,7 +304,8 @@ func NewTrace() *TraceContext {
 func NewSpanId() string {
 	timestamp := uint32(time.Now().Unix())
 	ipToLong := binary.BigEndian.Uint32(LocalIP.To4())
-	b := bytes.Buffer{}
+	b := borrowBuffer()
+	defer releaseBuffer(b)
 	b.WriteString(fmt.Sprintf("%08x", ipToLong^timestamp))
 	b.WriteString(fmt.Sprintf("%08x", rand.Int31()))
 	return b.String()
@@ -321,7 +321,8 @@ func calcTraceId(ip string) (traceId string) {
 	timeNano := now.UnixNano()
 	pid := os.Getpid()
 
-	b := bytes.Buffer{}
+	b := borrowBuffer()
+	defer releaseBuffer(b)
 	netIP := net.ParseIP(ip)
 	if netIP == nil {
 		b.WriteString("00000000")

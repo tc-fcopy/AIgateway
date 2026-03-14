@@ -121,6 +121,7 @@ func (e *Executor) toHandler(plugin http_proxy_plugin.Plugin, planVersion string
 		legacy := middlewarePlugin.Handler()
 		return func(c *gin.Context) {
 			ec := http_proxy_plugin.NewExecContext(c)
+			defer http_proxy_plugin.ReleaseExecContext(ec)
 			ec.PlanVersion = planVersion
 			if !plugin.Enabled(ec) {
 				c.Next()
@@ -132,6 +133,7 @@ func (e *Executor) toHandler(plugin http_proxy_plugin.Plugin, planVersion string
 
 	return func(c *gin.Context) {
 		ec := http_proxy_plugin.NewExecContext(c)
+		defer http_proxy_plugin.ReleaseExecContext(ec)
 		ec.PlanVersion = planVersion
 
 		if !plugin.Enabled(ec) {
