@@ -1,11 +1,10 @@
-package http_proxy_plugin
+﻿package http_proxy_plugin
 
 const (
 	PluginAICORS            = "ai.cors"
 	PluginCoreFlowCount     = "core.flow_count"
 	PluginCoreFlowLimit     = "core.flow_limit"
-	PluginCoreWhiteList     = "core.white_list"
-	PluginCoreBlackList     = "core.black_list"
+	PluginCoreIPACL         = "core.ip_acl"
 	PluginAIAuth            = "ai.auth"
 	PluginAIIPRestriction   = "ai.ip_restriction"
 	PluginAIModelRouter     = "ai.model_router"
@@ -20,3 +19,4 @@ const (
 	PluginProxyURLRewrite   = "proxy.url_rewrite"
 	PluginProxyReverseProxy = "proxy.reverse_proxy"
 )
+

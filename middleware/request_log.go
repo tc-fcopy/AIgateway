@@ -54,8 +54,9 @@ func RequestOutLog(c *gin.Context) {
 
 func RequestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		RequestInLog(c)
-		defer RequestOutLog(c)
+		// Disabled to reduce per-request overhead; keep hooks for future use.
+		// RequestInLog(c)
+		// defer RequestOutLog(c)
 		c.Next()
 	}
 }

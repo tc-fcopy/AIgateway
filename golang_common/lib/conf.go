@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -162,14 +163,23 @@ func InitViperConf() error {
 	}
 	for _, f0 := range fileList {
 		if !f0.IsDir() {
-			bts, err := ioutil.ReadFile(ConfEnvPath + "/" + f0.Name())
+			name := f0.Name()
+			lowerName := strings.ToLower(name)
+			if !strings.HasSuffix(lowerName, ".toml") || strings.HasSuffix(lowerName, ".example.toml") {
+				continue
+			}
+			bts, err := ioutil.ReadFile(ConfEnvPath + "/" + name)
 			if err != nil {
 				return err
 			}
+			bts = stripUTF8BOM(bts)
 			v := viper.New()
 			v.SetConfigType("toml")
-			v.ReadConfig(bytes.NewBuffer(bts))
-			pathArr := strings.Split(f0.Name(), ".")
+			if err := v.ReadConfig(bytes.NewBuffer(bts)); err != nil {
+				log.Printf("[WARN] read config %s failed: %v", name, err)
+				continue
+			}
+			pathArr := strings.Split(name, ".")
 			if ViperConfMap == nil {
 				ViperConfMap = make(map[string]*viper.Viper)
 			}

@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"fmt"
 	"gateway/dao"
 	"gateway/dto"
 	"gateway/golang_common/lib"
@@ -110,8 +109,8 @@ func (service *DashboardController) ServiceStat(c *gin.Context) {
 // @Success 200 {object} middleware.Response{data=dto.ServiceStatOutput} "success"
 // @Router /dashboard/flow_stat [get]
 func (service *DashboardController) FlowStat(c *gin.Context) {
-	counter, err := public.FlowCounterHandler.GetCounter(public.FlowTotal)
-	fmt.Println(counter)
+	_, err := public.FlowCounterHandler.GetCounter(public.FlowTotal)
+	// fmt.Println(counter)
 	if err != nil {
 		middleware.ResponseError(c, 2001, err)
 		return
@@ -126,8 +125,8 @@ func (service *DashboardController) FlowStat(c *gin.Context) {
 	yesterdayList := []int64{}
 	yesterTime := currentTime.Add(-1 * time.Duration(time.Hour*24))
 	for i := 0; i <= 23; i++ {
-		dateTime := time.Date(yesterTime.Year(), yesterTime.Month(), yesterTime.Day(), i, 0, 0, 0, lib.TimeLocation)
-		fmt.Println(dateTime)
+		_ = time.Date(yesterTime.Year(), yesterTime.Month(), yesterTime.Day(), i, 0, 0, 0, lib.TimeLocation)
+		// fmt.Println(dateTime)
 		hourData := int64(0)
 
 		yesterdayList = append(yesterdayList, hourData)

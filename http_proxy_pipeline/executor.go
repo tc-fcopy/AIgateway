@@ -85,6 +85,10 @@ func (e *Executor) getOrBuildPlan(c *gin.Context, service *dao.ServiceDetail) (*
 	if plan, ok := GetPlan(c); ok && plan != nil {
 		return plan, nil
 	}
+	if plan, ok := GetPlanByServiceID(service.Info.ID); ok && plan != nil {
+		c.Set(CtxPlanKey, plan)
+		return plan, nil
+	}
 	plan, err := BuildPlanForService(c, service)
 	if err != nil {
 		return nil, err

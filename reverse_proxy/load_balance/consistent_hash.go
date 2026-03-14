@@ -2,7 +2,6 @@ package load_balance
 
 import (
 	"errors"
-	"fmt"
 	"hash/crc32"
 	"sort"
 	"strconv"
@@ -31,7 +30,7 @@ type ConsistentHashBanlance struct {
 	hash     Hash
 	replicas int               //复制因子
 	keys     UInt32Slice       //已排序的节点hash切片
-	hashMap  map[uint32]string //节点哈希和Key的map,键是hash值，值是节点key
+	hashMap  map[uint32]string //节点hash和key的map
 
 	//观察主体
 	conf LoadBalanceConf
@@ -44,7 +43,7 @@ func NewConsistentHashBanlance(replicas int, fn Hash) *ConsistentHashBanlance {
 		hashMap:  make(map[uint32]string),
 	}
 	if m.hash == nil {
-		//最多32位,保证是一个2^32-1环
+		//最大2位保证是一个 2^32-1 这里
 		m.hash = crc32.ChecksumIEEE
 	}
 	return m
@@ -60,36 +59,37 @@ func (c *ConsistentHashBanlance) Add(params ...string) error {
 	if len(params) == 0 {
 		return errors.New("param len 1 at least")
 	}
-	addr := params[0]
+	addr := strings.TrimSpace(params[0])
+	if addr == "" {
+		return errors.New("param addr is empty")
+	}
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	// 结合复制因子计算所有虚拟节点的hash值，并存入m.keys中，同时在m.hashMap中保存哈希值和key的映射
+	// 结合复制因子计算所有虚拟节点的hash值，并存入c.keys，同时在c.hashMap中保存hash和key映射
 	for i := 0; i < c.replicas; i++ {
 		hash := c.hash([]byte(strconv.Itoa(i) + addr))
 		c.keys = append(c.keys, hash)
 		c.hashMap[hash] = addr
 	}
-	// 对所有虚拟节点的哈希值进行排序，方便之后进行二分查找
+	// 对所有虚拟节点的hash值进行排序，方便之后进行二分查找
 	sort.Sort(c.keys)
 	return nil
 }
 
 // Get 方法根据给定的对象获取最靠近它的那个节点
 func (c *ConsistentHashBanlance) Get(key string) (string, error) {
-	if c.IsEmpty() {
-		return "", errors.New("node is empty")
+	c.mux.RLock()
+	defer c.mux.RUnlock()
+	if len(c.keys) == 0 {
+		return "", ErrNoUpstream
 	}
 	hash := c.hash([]byte(key))
 
-	// 通过二分查找获取最优节点，第一个"服务器hash"值大于"数据hash"值的就是最优"服务器节点"
+	// 通过二分查找获取最优节点
 	idx := sort.Search(len(c.keys), func(i int) bool { return c.keys[i] >= hash })
-
-	// 如果查找结果 大于 服务器节点哈希数组的最大索引，表示此时该对象哈希值位于最后一个节点之后，那么放入第一个节点中
 	if idx == len(c.keys) {
 		idx = 0
 	}
-	c.mux.RLock()
-	defer c.mux.RUnlock()
 	return c.hashMap[c.keys[idx]], nil
 }
 
@@ -99,12 +99,29 @@ func (c *ConsistentHashBanlance) SetConf(conf LoadBalanceConf) {
 
 func (c *ConsistentHashBanlance) Update() {
 	if conf, ok := c.conf.(*LoadBalanceCheckConf); ok {
-		fmt.Println("Update get check conf:", conf.GetConf())
-		c.keys = nil
-		c.hashMap = map[uint32]string{}
-		fmt.Println("conf.GetConf()", conf.GetConf())
+		// fmt.Println("Update get check conf:", conf.GetConf())
+		newKeys := UInt32Slice{}
+		newMap := map[uint32]string{}
 		for _, ip := range conf.GetConf() {
-			c.Add(strings.Split(ip, ",")...)
+			parts := strings.Split(ip, ",")
+			if len(parts) == 0 {
+				continue
+			}
+			addr := strings.TrimSpace(parts[0])
+			if addr == "" {
+				continue
+			}
+			for i := 0; i < c.replicas; i++ {
+				hash := c.hash([]byte(strconv.Itoa(i) + addr))
+				newKeys = append(newKeys, hash)
+				newMap[hash] = addr
+			}
 		}
+		sort.Sort(newKeys)
+
+		c.mux.Lock()
+		c.keys = newKeys
+		c.hashMap = newMap
+		c.mux.Unlock()
 	}
 }

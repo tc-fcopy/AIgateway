@@ -49,7 +49,7 @@ func init() {
 }
 
 func (counter *FlowLimiter) GetLimiter(serverName string, qps float64) (*rate.Limiter, error) {
-	fmt.Println(len(counter.FlowLmiterSlice))
+	// fmt.Println(len(counter.FlowLmiterSlice))
 
 	// 1. 读操作加读锁（同时查Map，比Slice遍历高效）
 	counter.Locker.RLock()

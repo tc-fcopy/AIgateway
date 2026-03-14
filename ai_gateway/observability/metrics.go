@@ -12,13 +12,13 @@ import (
 
 // Metrics stores minimal in-memory counters and can expose Prometheus text format.
 type Metrics struct {
-	totalRequests uint64
-	totalErrors   uint64
+	totalRequests uint64 // 总请求数
+	totalErrors   uint64 // 总错误数
 
-	mu          sync.RWMutex
-	byService   map[string]uint64
-	byModel     map[string]uint64
-	totalTokens uint64
+	mu          sync.RWMutex      // 读写锁，保证并发安全
+	byService   map[string]uint64 // 按服务统计请求数
+	byModel     map[string]uint64 // 按模型统计请求数
+	totalTokens uint64            // 总消耗 Token 数
 }
 
 var (
@@ -34,6 +34,10 @@ func NewMetrics() *Metrics {
 }
 
 func (m *Metrics) RecordRequest(service, model string, statusCode int, totalTokens int64) {
+	//总请求数 +1（原子操作，高并发安全）
+	//状态码 ≥400 算错误，错误数 +1
+	//累计消耗的总 Token 数
+	//按 service、model 维度分别统计请求次数
 	atomic.AddUint64(&m.totalRequests, 1)
 	if statusCode >= 400 {
 		atomic.AddUint64(&m.totalErrors, 1)

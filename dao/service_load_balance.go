@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -15,19 +16,19 @@ import (
 
 type LoadBalance struct {
 	ID            int64  `json:"id" gorm:"primary_key"`
-	ServiceID     int64  `json:"service_id" gorm:"column:service_id" description:"服务id	"`
-	CheckMethod   int    `json:"check_method" gorm:"column:check_method" description:"检查方cpchk=检测端口是否握手成�?"`
-	CheckTimeout  int    `json:"check_timeout" gorm:"column:check_timeout" description:"check超时时间	"`
-	CheckInterval int    `json:"check_interval" gorm:"column:check_interval" description:"检查间�? 单位s		"`
-	RoundType     int    `json:"round_type" gorm:"column:round_type" description:"轮询方式 round/weight_round/random/ip_hash"`
-	IpList        string `json:"ip_list" gorm:"column:ip_list" description:"ip列表"`
-	WeightList    string `json:"weight_list" gorm:"column:weight_list" description:"权重列表"`
-	ForbidList    string `json:"forbid_list" gorm:"column:forbid_list" description:"禁用ip列表"`
+	ServiceID     int64  `json:"service_id" gorm:"column:service_id" description:"鏈嶅姟id	"`
+	CheckMethod   int    `json:"check_method" gorm:"column:check_method" description:"妫€鏌ユ柟cpchk=妫€娴嬬鍙ｆ槸鍚︽彙鎵嬫垚锟?"`
+	CheckTimeout  int    `json:"check_timeout" gorm:"column:check_timeout" description:"check瓒呮椂鏃堕棿	"`
+	CheckInterval int    `json:"check_interval" gorm:"column:check_interval" description:"妫€鏌ラ棿锟? 鍗曚綅s		"`
+	RoundType     int    `json:"round_type" gorm:"column:round_type" description:"杞鏂瑰紡 round/weight_round/random/ip_hash"`
+	IpList        string `json:"ip_list" gorm:"column:ip_list" description:"ip鍒楄〃"`
+	WeightList    string `json:"weight_list" gorm:"column:weight_list" description:"weight list"`
+	ForbidList    string `json:"forbid_list" gorm:"column:forbid_list" description:"绂佺敤ip鍒楄〃"`
 
-	UpstreamConnectTimeout int `json:"upstream_connect_timeout" gorm:"column:upstream_connect_timeout" description:"下游建立连接超时, 单位s"`
-	UpstreamHeaderTimeout  int `json:"upstream_header_timeout" gorm:"column:upstream_header_timeout" description:"下游获取header超时, 单位s	"`
-	UpstreamIdleTimeout    int `json:"upstream_idle_timeout" gorm:"column:upstream_idle_timeout" description:"下游链接最大空闲时�? 单位s	"`
-	UpstreamMaxIdle        int `json:"upstream_max_idle" gorm:"column:upstream_max_idle" description:"下游最大空闲链接数"`
+	UpstreamConnectTimeout int `json:"upstream_connect_timeout" gorm:"column:upstream_connect_timeout" description:"涓嬫父寤虹珛杩炴帴瓒呮椂, 鍗曝綅s"`
+	UpstreamHeaderTimeout  int `json:"upstream_header_timeout" gorm:"column:upstream_header_timeout" description:"涓嬫父鑾峰彇header瓒呮椂, 鍗曝綅s	"`
+	UpstreamIdleTimeout    int `json:"upstream_idle_timeout" gorm:"column:upstream_idle_timeout" description:"涓嬫父閾炬帴鏈€澶х┖闂叉椂锟? 鍗曝綅s	"`
+	UpstreamMaxIdle        int `json:"upstream_max_idle" gorm:"column:upstream_max_idle" description:"涓嬫父鏈€澶х┖闂查摼鎺ユ暟"`
 }
 
 func (t *LoadBalance) TableName() string {
@@ -48,20 +49,35 @@ func (t *LoadBalance) Save(c *gin.Context, tx *gorm.DB) error {
 }
 
 func (t *LoadBalance) GetIPListByModel() []string {
-	// 解析IpList字符串，假设它是以逗号分隔的IP地址列表
+	// 瑙ｆ瀽IpList瀛楃涓诧紝鍋囪瀹冩槸浠ラ€楀彿鍒嗛殧鐨処P鍦板潃鍒楄〃
 	ips := strings.Split(t.IpList, ",")
-	// 过滤空字符串
+	// 杩囨护绌哄瓧绗︿覆
 	var result []string
 	for _, ip := range ips {
 		ip = strings.TrimSpace(ip)
-		if ip != "" {
-			result = append(result, ip)
+		if ip == "" {
+			continue
 		}
+		if strings.Contains(ip, "://") {
+			if parsed, err := url.Parse(ip); err == nil && parsed.Host != "" {
+				ip = parsed.Host
+			}
+		}
+		result = append(result, ip)
 	}
 	return result
 }
+
 func (t *LoadBalance) GetWeightListByModel() []string {
-	return strings.Split(t.WeightList, ",")
+	parts := strings.Split(t.WeightList, ",")
+	var result []string
+	for _, w := range parts {
+		w = strings.TrimSpace(w)
+		if w != "" {
+			result = append(result, w)
+		}
+	}
+	return result
 }
 
 var LoadBalancerHandler *LoadBalancer
@@ -90,11 +106,18 @@ func init() {
 }
 
 func (lbr *LoadBalancer) GetLoadBalancer(service *ServiceDetail) (load_balance.LoadBalance, error) {
-	for _, lbrItem := range lbr.LoadBanlanceSlice {
-		if lbrItem.ServiceName == service.Info.ServiceName {
-			return lbrItem.LoadBanlance, nil
-		}
+	if service == nil || service.Info == nil || service.LoadBalance == nil {
+		return nil, fmt.Errorf("service load balance config is nil")
 	}
+	serviceName := service.Info.ServiceName
+
+	lbr.Locker.RLock()
+	if lbrItem, ok := lbr.LoadBanlanceMap[serviceName]; ok && lbrItem != nil {
+		lbr.Locker.RUnlock()
+		return lbrItem.LoadBanlance, nil
+	}
+	lbr.Locker.RUnlock()
+
 	schema := "http://"
 	if service.HTTPRule.NeedHttps == 1 {
 		schema = "https://"
@@ -103,28 +126,41 @@ func (lbr *LoadBalancer) GetLoadBalancer(service *ServiceDetail) (load_balance.L
 		schema = ""
 	}
 	ipList := service.LoadBalance.GetIPListByModel()
+	if len(ipList) == 0 {
+		return nil, fmt.Errorf("upstream ip list is empty")
+	}
 	weightList := service.LoadBalance.GetWeightListByModel()
+	defaultWeight := "50"
+	for len(weightList) < len(ipList) {
+		weightList = append(weightList, defaultWeight)
+	}
 	ipConf := map[string]string{}
 	for ipIndex, ipItem := range ipList {
-		ipConf[ipItem] = weightList[ipIndex]
+		weight := defaultWeight
+		if ipIndex < len(weightList) && strings.TrimSpace(weightList[ipIndex]) != "" {
+			weight = strings.TrimSpace(weightList[ipIndex])
+		}
+		ipConf[ipItem] = weight
 	}
-	fmt.Println("ipConf", ipConf)
+	// fmt.Println("ipConf", ipConf)
 	mConf, err := load_balance.NewLoadBalanceCheckConf(fmt.Sprintf("%s%s", schema, "%s"), ipConf)
 	if err != nil {
 		return nil, err
 	}
 	lb := load_balance.LoadBanlanceFactorWithConf(load_balance.LbType(service.LoadBalance.RoundType), mConf)
 
-	//save to map and slice
 	lbItem := &LoadBalancerItem{
 		LoadBanlance: lb,
-		ServiceName:  service.Info.ServiceName,
+		ServiceName:  serviceName,
+	}
+	lbr.Locker.Lock()
+	if lbrItem, ok := lbr.LoadBanlanceMap[serviceName]; ok && lbrItem != nil {
+		lbr.Locker.Unlock()
+		return lbrItem.LoadBanlance, nil
 	}
 	lbr.LoadBanlanceSlice = append(lbr.LoadBanlanceSlice, lbItem)
-
-	lbr.Locker.Lock()
-	defer lbr.Locker.Unlock()
-	lbr.LoadBanlanceMap[service.Info.ServiceName] = lbItem
+	lbr.LoadBanlanceMap[serviceName] = lbItem
+	lbr.Locker.Unlock()
 	return lb, nil
 }
 
@@ -154,13 +190,19 @@ func init() {
 }
 
 func (t *Transportor) GetTrans(service *ServiceDetail) (*http.Transport, error) {
-	for _, transItem := range t.TransportSlice {
-		if transItem.ServiceName == service.Info.ServiceName {
-			return transItem.Trans, nil
-		}
+	if service == nil || service.Info == nil || service.LoadBalance == nil {
+		return nil, fmt.Errorf("service transport config is nil")
 	}
+	serviceName := service.Info.ServiceName
 
-	//todo 优化点5
+	t.Locker.RLock()
+	if transItem, ok := t.TransportMap[serviceName]; ok && transItem != nil {
+		t.Locker.RUnlock()
+		return transItem.Trans, nil
+	}
+	t.Locker.RUnlock()
+
+	//todo 浼樺寲鐐?
 	if service.LoadBalance.UpstreamConnectTimeout == 0 {
 		service.LoadBalance.UpstreamConnectTimeout = 30
 	}
@@ -187,14 +229,17 @@ func (t *Transportor) GetTrans(service *ServiceDetail) (*http.Transport, error) 
 		ResponseHeaderTimeout: time.Duration(service.LoadBalance.UpstreamHeaderTimeout) * time.Second,
 	}
 
-	//save to map and slice
 	transItem := &TransportItem{
 		Trans:       trans,
-		ServiceName: service.Info.ServiceName,
+		ServiceName: serviceName,
+	}
+	t.Locker.Lock()
+	if existing, ok := t.TransportMap[serviceName]; ok && existing != nil {
+		t.Locker.Unlock()
+		return existing.Trans, nil
 	}
 	t.TransportSlice = append(t.TransportSlice, transItem)
-	t.Locker.Lock()
-	defer t.Locker.Unlock()
-	t.TransportMap[service.Info.ServiceName] = transItem
+	t.TransportMap[serviceName] = transItem
+	t.Locker.Unlock()
 	return trans, nil
 }

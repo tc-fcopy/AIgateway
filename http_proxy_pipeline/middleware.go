@@ -31,28 +31,42 @@ func PipelinePlanMiddleware() gin.HandlerFunc {
 		c.Set("service_name", service.Info.ServiceName)
 		c.Set("service_id", service.Info.ID)
 
+		if plan, ok := GetPlanByServiceID(service.Info.ID); ok && plan != nil {
+			applyPlanToContext(c, plan)
+			c.Next()
+			return
+		}
+
 		plan, err := defaultPlanner.Build(c, service)
 		if err == nil && plan != nil {
-			plugins := strings.Join(plan.Plugins, ",")
-			warnings := strings.Join(plan.Warnings, ";")
-
-			c.Set(CtxPlanKey, plan)
-			c.Set(CtxPlanPluginKey, plugins)
-			if warnings != "" {
-				c.Set("pipeline_warnings", warnings)
-			}
-
-			if isDebugPlan(c) {
-				c.Header("X-Pipeline-Service", plan.ServiceName)
-				c.Header("X-Pipeline-Plugins", plugins)
-				c.Header("X-Pipeline-Version", plan.ConfigVersion)
-				if warnings != "" {
-					c.Header("X-Pipeline-Warnings", warnings)
-				}
-			}
+			applyPlanToContext(c, plan)
 		}
 
 		c.Next()
+	}
+}
+
+func applyPlanToContext(c *gin.Context, plan *Plan) {
+	if c == nil || plan == nil {
+		return
+	}
+
+	plugins := strings.Join(plan.Plugins, ",")
+	warnings := strings.Join(plan.Warnings, ";")
+
+	c.Set(CtxPlanKey, plan)
+	c.Set(CtxPlanPluginKey, plugins)
+	if warnings != "" {
+		c.Set("pipeline_warnings", warnings)
+	}
+
+	if isDebugPlan(c) {
+		c.Header("X-Pipeline-Service", plan.ServiceName)
+		c.Header("X-Pipeline-Plugins", plugins)
+		c.Header("X-Pipeline-Version", plan.ConfigVersion)
+		if warnings != "" {
+			c.Header("X-Pipeline-Warnings", warnings)
+		}
 	}
 }
 

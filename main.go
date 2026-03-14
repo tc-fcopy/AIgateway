@@ -58,6 +58,9 @@ func main() {
 	if err := http_proxy_pipeline.ReloadAIServiceConfigRuntime(0); err != nil {
 		log.Printf("[WARN] preload ai service config runtime failed: %v", err)
 	}
+	if err := http_proxy_pipeline.PrebuildPlans(dao.ServiceManagerHandler.List()); err != nil {
+		log.Printf("[WARN] prebuild pipeline plans failed: %v", err)
+	}
 
 	go func() {
 		http_proxy_router.HttpServerRun()

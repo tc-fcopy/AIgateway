@@ -5,13 +5,19 @@
     time_location="Asia/Chongqing"
 
 [http]
-    addr =":8080"                       # 监听地址, default ":8700"
-    read_timeout = 10                   # 读取超时时长
-    write_timeout = 10                  # 写入超时时长
-    max_header_bytes = 20               # 最大的header大小，二进制位长度
+    addr =":8080"                       # 鐩戝惉鍦板潃, default ":8700"
+    read_timeout = 10                   # 璇诲彇瓒呮椂鏃堕暱
+    write_timeout = 10                  # 鍐欏叆瓒呮椂鏃堕暱
+    max_header_bytes = 20               # 鏈€澶х殑header澶у皬锛屼簩杩涘埗浣嶉暱搴?
 
 [https]
-    addr =":4433"                       # 监听地址, default ":8700"
-    read_timeout = 10                   # 读取超时时长
-    write_timeout = 10                  # 写入超时时长
-    max_header_bytes = 20               # 最大的header大小，二进制位长度
+    addr =":4433"                       # 鐩戝惉鍦板潃, default ":8700"
+    read_timeout = 10                   # 璇诲彇瓒呮椂鏃堕暱
+    write_timeout = 10                  # 鍐欏叆瓒呮椂鏃堕暱
+    max_header_bytes = 20               # 鏈€澶х殑header澶у皬锛屼簩杩涘埗浣嶉暱搴? 
+
+# pprof (optional)
+[pprof]
+    addr = "127.0.0.1:6062"
+
+

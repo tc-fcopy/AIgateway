@@ -150,3 +150,15 @@ func (sm *ServiceManager) GetByName(serviceName string) (*ServiceDetail, bool) {
 	}
 	return service, true
 }
+
+// List returns a snapshot of current service details.
+func (sm *ServiceManager) List() []*ServiceDetail {
+	if sm == nil {
+		return nil
+	}
+	sm.Locker.RLock()
+	defer sm.Locker.RUnlock()
+	out := make([]*ServiceDetail, len(sm.ServiceSlice))
+	copy(out, sm.ServiceSlice)
+	return out
+}

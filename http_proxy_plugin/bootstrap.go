@@ -36,11 +36,8 @@ func registerBuiltinPlugins(reg *Registry) error {
 	if err := reg.Register(NewCoreFlowLimitPlugin()); err != nil {
 		return fmt.Errorf("register plugin %s failed: %w", PluginCoreFlowLimit, err)
 	}
-	if err := reg.Register(NewCoreWhiteListPlugin()); err != nil {
-		return fmt.Errorf("register plugin %s failed: %w", PluginCoreWhiteList, err)
-	}
-	if err := reg.Register(NewCoreBlackListPlugin()); err != nil {
-		return fmt.Errorf("register plugin %s failed: %w", PluginCoreBlackList, err)
+	if err := reg.Register(NewCoreIPACLPlugin()); err != nil {
+		return fmt.Errorf("register plugin %s failed: %w", PluginCoreIPACL, err)
 	}
 	if err := reg.Register(NewAIAuthPlugin()); err != nil {
 		return fmt.Errorf("register plugin %s failed: %w", PluginAIAuth, err)

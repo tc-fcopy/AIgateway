@@ -18,10 +18,14 @@ var ConfEnv string     //配置环境名 比如：dev prod test
 // 如：config=conf/dev/base.json 	ConfEnvPath=conf/dev	ConfEnv=dev
 // 如：config=conf/base.json		ConfEnvPath=conf		ConfEnv=conf
 func ParseConfPath(config string) error {
+	// 规范化路径分隔符
+	config = strings.ReplaceAll(config, "\\", "/")
+	// 去掉末尾可能存在的斜杠
+	config = strings.TrimRight(config, "/")
+
 	path := strings.Split(config, "/")
-	prefix := strings.Join(path[:len(path)-1], "/")
-	ConfEnvPath = prefix
-	ConfEnv = path[len(path)-2]
+	ConfEnvPath = config
+	ConfEnv = path[len(path)-1]
 	return nil
 }
 
@@ -60,7 +64,10 @@ func ParseConfig(path string, conf interface{}) error {
 
 	v := viper.New()
 	v.SetConfigType("toml")
-	v.ReadConfig(bytes.NewBuffer(data))
+	data = stripUTF8BOM(data)
+	if err := v.ReadConfig(bytes.NewBuffer(data)); err != nil {
+		return fmt.Errorf("Parse config fail, path:%v, err:%v", path, err)
+	}
 	if err := v.Unmarshal(conf); err != nil {
 		return fmt.Errorf("Parse config fail, config:%v, err:%v", string(data), err)
 	}

@@ -26,8 +26,7 @@ const (
 	PluginAICORS            = "ai.cors"
 	PluginCoreFlowCount     = "core.flow_count"
 	PluginCoreFlowLimit     = "core.flow_limit"
-	PluginCoreWhiteList     = "core.white_list"
-	PluginCoreBlackList     = "core.black_list"
+	PluginCoreIPACL         = "core.ip_acl"
 	PluginAIAuth            = "ai.auth"
 	PluginAIIPRestriction   = "ai.ip_restriction"
 	PluginAIModelRouter     = "ai.model_router"
@@ -121,14 +120,14 @@ type PluginSpec struct {
 
 // Plan is the compiled execution plan for a service.
 type Plan struct {
-	ServiceID         int64
-	ServiceName       string
-	ConfigVersion     string
-	Plugins           []string
-	Warnings          []string
-	pluginSet         map[string]struct{}
-	CompiledHandler   gin.HandlerFunc    // 预编译的执行链
-	CompiledHandlers  []gin.HandlerFunc  // 调试用：单独的 handler 链
+	ServiceID        int64
+	ServiceName      string
+	ConfigVersion    string
+	Plugins          []string
+	Warnings         []string
+	pluginSet        map[string]struct{}
+	CompiledHandler  gin.HandlerFunc   // 棰勭紪璇戠殑鎵ц閾?
+	CompiledHandlers []gin.HandlerFunc // 璋冭瘯鐢細鍗曠嫭鐨?handler 閾?
 }
 
 func (p *Plan) Has(pluginName string) bool {

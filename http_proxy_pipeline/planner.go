@@ -18,8 +18,7 @@ func defaultPluginSpecs() []PluginSpec {
 
 		{Name: PluginCoreFlowCount, Phase: PhaseEdgeGuard, Priority: 900, Enabled: alwaysOn},
 		{Name: PluginCoreFlowLimit, Phase: PhaseEdgeGuard, Priority: 800, Enabled: alwaysOn},
-		{Name: PluginCoreWhiteList, Phase: PhaseEdgeGuard, Priority: 700, Enabled: alwaysOn},
-		{Name: PluginCoreBlackList, Phase: PhaseEdgeGuard, Priority: 600, Enabled: alwaysOn},
+		{Name: PluginCoreIPACL, Phase: PhaseEdgeGuard, Priority: 700, Enabled: alwaysOn},
 
 		{Name: PluginAIAuth, Phase: PhaseAuthN, Priority: 1000, Enabled: func(pc *PlanContext) bool { return isAI(pc) && pc.EnableAuth }},
 
@@ -45,55 +44,33 @@ func defaultPluginSpecs() []PluginSpec {
 func alwaysOn(_ *PlanContext) bool { return true }
 
 func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []PluginSpec, registry *http_proxy_plugin.Registry) *Plan {
-	// ========== 步骤1：应用优先级覆盖规则（服务级优先级 > 插件默认优先级） ==========
 	effective := applyPriorityOverrides(specs, pc.PriorityOverrides)
-	// 作用：
-	// - 入参specs是全局插件规格（默认优先级）；
-	// - pc.PriorityOverrides是当前服务的优先级覆盖规则；
-	// - 最终effective是「覆盖后」的插件规格列表，保证服务能自定义插件优先级。
 
-	// ========== 步骤2：筛选当前服务需要启用的插件 ==========
 	enabled := make([]PluginSpec, 0, len(effective))
 	for _, sp := range effective {
-		// 核心判断：插件是否为当前服务启用
-		// - sp.Enabled == nil：插件无自定义启用规则，默认启用；
-		// - sp.Enabled(pc)：执行插件的启用规则（基于PlanContext中的服务配置，如EnableAuth）；
 		if sp.Enabled == nil || sp.Enabled(pc) {
 			enabled = append(enabled, sp)
 		}
 	}
 
-	// ========== 步骤3：按「执行阶段+优先级」稳定排序（核心） ==========
 	sort.SliceStable(enabled, func(i, j int) bool {
-		// 第一优先级：执行阶段（Phase）—— 数值越小，执行越早（如前置阶段<核心阶段）
 		if enabled[i].Phase != enabled[j].Phase {
 			return enabled[i].Phase < enabled[j].Phase
 		}
-		// 第二优先级：同阶段内的优先级（Priority）—— 数值越大，执行越早（如auth插件优先级高于log插件）
 		return enabled[i].Priority > enabled[j].Priority
 	})
-	// 关键：sort.SliceStable 保证「同优先级插件」的相对顺序不变（稳定排序），避免排序结果不可预期。
 
-	// ========== 步骤4：校验插件依赖，收集警告 ==========
 	validated, warnings := validateDependencies(enabled, pc.StrictDependency)
-	// 核心逻辑：
-	// - 遍历enabled插件列表，检查每个插件的Dependencies是否都已启用；
-	// - pc.StrictDependency=true：依赖缺失则剔除该插件；
-	// - pc.StrictDependency=false：依赖缺失仅收集警告，不剔除插件；
-	// - 返回validated（校验后的插件列表）和warnings（依赖警告）。
 
-	// ========== 步骤5：提取插件名称，构建快速查询集合 ==========
 	plugins := make([]string, 0, len(validated))
 	set := make(map[string]struct{}, len(validated))
 	for _, sp := range validated {
-		plugins = append(plugins, sp.Name) // 最终执行的插件名称列表
-		set[sp.Name] = struct{}{}          // 插件集合，用于后续快速判断（如plan.Has(pluginName)）
+		plugins = append(plugins, sp.Name)
+		set[sp.Name] = struct{}{}
 	}
 
-	// ========== 步骤6：编译执行链 ==========
 	compiled := compileExecChain(validated, registry, pc.ConfigVersion())
 
-	// 保存单个 handlers 用于调试
 	var compiledHandlers []gin.HandlerFunc
 	if compiled != nil {
 		compiledHandlers = make([]gin.HandlerFunc, 0, len(validated))
@@ -110,33 +87,34 @@ func buildPlan(serviceID int64, serviceName string, pc *PlanContext, specs []Plu
 					ec.PlanVersion = pc.ConfigVersion()
 					legacy(c)
 				})
-			} else {
-				compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
-					ec := http_proxy_plugin.NewExecContext(c)
-					ec.PlanVersion = pc.ConfigVersion()
-
-					result := plugin.Execute(ec)
-					if result.IsAbort() {
-						handlePluginAbort(c, result)
-						return
-					}
-				})
+				continue
 			}
+
+			compiledHandlers = append(compiledHandlers, func(c *gin.Context) {
+				ec := http_proxy_plugin.NewExecContext(c)
+				ec.PlanVersion = pc.ConfigVersion()
+
+				result := plugin.Execute(ec)
+				if result.IsAbort() {
+					handlePluginAbort(c, result)
+					return
+				}
+			})
 		}
 	}
 
-	// ========== 步骤7：构建并返回最终的Plan ==========
 	return &Plan{
-		ServiceID:         serviceID,          // 服务ID
-		ServiceName:       serviceName,        // 服务名称
-		ConfigVersion:     pc.ConfigVersion(), // 配置版本（用于缓存Key）
-		Plugins:           plugins,            // 排序后的插件名称列表（Executor执行的核心依据）
-		Warnings:          warnings,           // 构建过程中的警告（如依赖缺失）
-		pluginSet:         set,                // 插件集合（优化后续Has方法的查询性能）
-		CompiledHandler:   compiled,           // 预编译的执行链
-		CompiledHandlers:  compiledHandlers,   // 调试用：单独的 handler 链
+		ServiceID:        serviceID,
+		ServiceName:      serviceName,
+		ConfigVersion:    pc.ConfigVersion(),
+		Plugins:          plugins,
+		Warnings:         warnings,
+		pluginSet:        set,
+		CompiledHandler:  compiled,
+		CompiledHandlers: compiledHandlers,
 	}
 }
+
 func applyPriorityOverrides(specs []PluginSpec, overrides map[string]int) []PluginSpec {
 	copied := make([]PluginSpec, len(specs))
 	copy(copied, specs)
@@ -219,19 +197,19 @@ func compileExecChain(specs []PluginSpec, registry *http_proxy_plugin.Registry, 
 				ec.PlanVersion = planVersion
 				legacy(c)
 			})
-		} else {
-			handlers = append(handlers, func(c *gin.Context) {
-				ec := http_proxy_plugin.NewExecContext(c)
-				ec.PlanVersion = planVersion
-
-				result := plugin.Execute(ec)
-				if result.IsAbort() {
-					// 调用 executor.go 中的 handlePluginAbort
-					handlePluginAbort(c, result)
-					return
-				}
-			})
+			continue
 		}
+
+		handlers = append(handlers, func(c *gin.Context) {
+			ec := http_proxy_plugin.NewExecContext(c)
+			ec.PlanVersion = planVersion
+
+			result := plugin.Execute(ec)
+			if result.IsAbort() {
+				handlePluginAbort(c, result)
+				return
+			}
+		})
 	}
 
 	return func(c *gin.Context) {

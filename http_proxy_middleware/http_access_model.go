@@ -1,10 +1,8 @@
 package http_proxy_middleware
 
 import (
-	"fmt"
 	"gateway/dao"
 	"gateway/middleware"
-	"gateway/public"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,7 +15,7 @@ func HTTPAccessModeMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		fmt.Println("matched service", public.Obj2Json(service))
+		// fmt.Println("matched service", public.Obj2Json(service))
 		c.Set("service", service)
 		c.Next()
 	}
